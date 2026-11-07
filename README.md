@@ -29,8 +29,9 @@ app on my Mac, so I can keep an eye on my little dude while I work.
   your Mac from each camera's audio, even while muted.
 - **Finds your cameras.** The Cameras window looks for Reolink cameras on your
   network, checks the login and adds them. No IP addresses to look up.
-- **Local only.** ReoBaby connects only to your cameras. No account, no cloud, no
-  analytics. Passwords live in the login keychain.
+- **Local only.** ReoBaby connects only to your cameras, and to GitHub to check
+  for updates. No account, no cloud, no analytics. Passwords live in the login
+  keychain.
 - **No dependencies.** RTSP, RTP depacketizing (H.264, H.265, AAC, G.711) and
   hardware decoding are written on top of Network.framework and AVFoundation.
 
@@ -88,6 +89,21 @@ soon as you save it.
 | `name` | Optional. Without it, ReoBaby shows the name set on the camera. |
 | `password` | Optional and stored in plain text. Leave it out: ReoBaby asks the first time a camera rejects the login and keeps the password in your keychain. |
 
+## Updates
+
+ReoBaby checks GitHub for a new version when it starts and every six hours. It
+downloads the new version in the background, checks that it's signed by the same
+developer, and installs it the next time ReoBaby quits, so it never restarts
+while you're watching. To install it right away, choose **Restart to Update**
+from the ReoBaby menu or the moon in the menu bar. **Check for Updates…** checks
+now. To stop the automatic checks:
+
+```bash
+defaults write com.kilianciuffolo.cam autoUpdate -bool false
+```
+
+A copy built from source without a signing certificate doesn't update itself.
+
 ## Notifications
 
 Each camera notifies at most once every 5 minutes, so someone walking into the
@@ -130,7 +146,7 @@ Other targets:
 | Command | What it does |
 | --- | --- |
 | `make run` | Build and open the app from `build/`. |
-| `make release` | Build a universal (Apple silicon and Intel) app and zip it to `build/ReoBaby.zip`. |
+| `make release` | Build a universal (Apple silicon and Intel) app and zip it to `build/ReoBaby.zip`. It needs your signing certificate, because ReoBaby only installs updates signed like the copy they replace. |
 | `make probe CAM="Nursery"` | Connect to a camera without a window and print codecs, frame rate, errors and its name. `CAM` is a name, a number from the list, or an `rtsp://` URL. |
 | `make discover` | List the Reolink cameras on your network, as the Cameras window finds them. |
 | `make test-server` | Start local test cameras in Docker at `rtsp://tester:testpass@127.0.0.1:8554/` with the paths `nursery`, `h264`, `h265` and `beeps`. |
@@ -144,6 +160,9 @@ To watch live sound levels and detection events for a camera:
 ```bash
 build/ReoBaby.app/Contents/MacOS/ReoBaby --monitor "Nursery" 30
 ```
+
+`REOBABY_UPDATE_URL` points the updater at another release feed (a JSON file
+shaped like GitHub's latest-release answer), to test updates without publishing.
 
 ### Pictures without a real camera
 

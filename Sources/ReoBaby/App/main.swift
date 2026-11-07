@@ -13,6 +13,10 @@ if let i = arguments.firstIndex(of: "--monitor") {
     exit(Probe.monitor(target: target, seconds: seconds))
 }
 
+if let i = arguments.firstIndex(of: "--install-update") {
+    exit(Updater.finishInstall(arguments: Array(arguments[(i + 1)...])))
+}
+
 if arguments.contains("--discover") {
     exit(Probe.discover())
 }

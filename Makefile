@@ -31,6 +31,7 @@ install: app
 # Universal app, zipped for a GitHub release: build/ReoBaby.zip
 release: ARCHS = arm64 x86_64
 release: app
+	@[ "$(SIGN_ID)" != "-" ] || { echo "make release needs your signing certificate: ReoBaby only installs updates signed like the copy they replace."; exit 1; }
 	rm -f build/ReoBaby.zip
 	ditto -c -k --keepParent $(APP) build/ReoBaby.zip
 	@echo "build/ReoBaby.zip: $$(lipo -archs $(APP)/Contents/MacOS/ReoBaby)"

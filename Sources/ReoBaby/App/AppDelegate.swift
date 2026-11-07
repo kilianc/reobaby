@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(playerView)
         NSApp.activate()
+        Updater.shared.start()
     }
 
     /// Closing the player keeps ReoBaby in the menu bar, still watching for motion and sound.
@@ -111,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillTerminate(_ notification: Notification) {
         player?.stop()
         monitors.values.forEach { $0.stop() }
+        Updater.shared.installIfReady()
     }
 
     private func placeInCorner() {
@@ -450,10 +452,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = alerts.notifySound ? .on : .off
         case #selector(nextCamera(_:)), #selector(previousCamera(_:)):
             return cameras.count > 1
+        case #selector(updateAction(_:)):
+            item.title = Updater.shared.menuTitle
+            return Updater.shared.menuEnabled
         default:
             break
         }
         return true
+    }
+
+    @MainActor @objc func updateAction(_ sender: Any?) {
+        Updater.shared.menuAction()
     }
 
     // MARK: - Menus
@@ -468,7 +477,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    private func populateStatusMenu(_ menu: NSMenu) {
+    @MainActor private func populateStatusMenu(_ menu: NSMenu) {
         statusBar.setAlert(false)
         if !alerts.recent.isEmpty {
             let formatter = RelativeDateTimeFormatter()
@@ -497,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(item("Notify on Sound", #selector(toggleNotifySound(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Cameras…", #selector(showCameras(_:))))
+        menu.addItem(item(Updater.shared.menuTitle, #selector(updateAction(_:))))
         let quit = NSMenuItem(title: "Quit ReoBaby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         menu.addItem(quit)
     }
@@ -530,6 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About ReoBaby", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(item("Check for Updates…", #selector(updateAction(_:))))
         appMenu.addItem(.separator())
         appMenu.addItem(item("Cameras…", #selector(showCameras(_:)), ","))
         appMenu.addItem(.separator())
