@@ -2,9 +2,8 @@
 
 # ReoBaby
 
-A tiny Mac window for your Reolink baby cameras. It floats in a corner of your
-screen while you work, tells you when something happens, and keeps everything on
-your home network.
+A tiny PiP-like window for your Reolink cameras. All local, no cloud. It floats in
+a corner of your screen while you work and tells you when something happens.
 
 **[Download for Mac](https://github.com/kilianc/reobaby/releases/latest/download/ReoBaby.zip)**
 · [Try it in your browser](https://kilianc.github.io/reobaby/) · macOS 14 or later, Apple silicon and Intel
@@ -133,11 +132,10 @@ build/ReoBaby.app/Contents/MacOS/ReoBaby --monitor "Nursery" 30
 
 ### Pictures without a real camera
 
-Every picture of a baby here is AI-generated, not filmed. `test/demo/nursery-photo.jpg` is the
-photo; `tools/demo-frame.swift` stamps it with a camera clock into `test/demo/nursery.png`, which
-`make test-server` streams as the `nursery` camera. `tools/hero-shot.swift` puts a capture of the
-app's window on a drawn desktop. `REOBABY_CONFIG_DIR` points the app at a different camera list,
-and `REOBABY_PIN_CONTROLS=1` keeps the controls visible:
+`test/demo/nursery-photo.jpg` is an AI-generated photo, so no real footage ends up in the repo.
+`tools/demo-frame.swift` stamps it with a camera clock into `test/demo/nursery.png`, which
+`make test-server` streams as the `nursery` camera. `REOBABY_CONFIG_DIR` points the app at a
+different camera list, and `REOBABY_PIN_CONTROLS=1` keeps the controls visible:
 
 ```bash
 mkdir -p /tmp/reobaby-demo
@@ -145,7 +143,8 @@ echo '{"cameras":[{"name":"Nursery","url":"rtsp://127.0.0.1:8554/nursery","user"
 open -n --env REOBABY_CONFIG_DIR=/tmp/reobaby-demo --env REOBABY_PIN_CONTROLS=1 build/ReoBaby.app
 ```
 
-The website in `docs/` is a desktop simulation using the same photo. The app icon comes from
+The website in `docs/` is a desktop simulation using the same photo. `make hero` screenshots it
+(`docs/index.html#shot`) with headless Chrome into `docs/hero.jpg`. The app icon comes from
 `tools/make-icon.swift`.
 
 ## License

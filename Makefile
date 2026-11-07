@@ -7,7 +7,7 @@ BIN = $(shell swift build $(SWIFT_FLAGS) --show-bin-path)/ReoBaby
 # ad-hoc signing ("-") makes every build a new app to the keychain.
 SIGN_ID ?= $(or $(shell security find-identity -p codesigning -v 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/ {print $$2; exit}'),-)
 
-.PHONY: build app run install release probe test-server test-server-stop clean
+.PHONY: build app run install release probe hero test-server test-server-stop clean
 
 build:
 	swift build $(SWIFT_FLAGS)
@@ -34,6 +34,15 @@ release: app
 	rm -f build/ReoBaby.zip
 	ditto -c -k --keepParent $(APP) build/ReoBaby.zip
 	@echo "build/ReoBaby.zip: $$(lipo -archs $(APP)/Contents/MacOS/ReoBaby)"
+
+# docs/hero.jpg, the README and link-preview picture: headless Chrome screenshots the site's
+# simulated desktop (docs/index.html#shot) at 2x, and sips scales it to 1600 px wide.
+CHROME ?= /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+hero:
+	mkdir -p build
+	"$(CHROME)" --headless=new --user-data-dir=build/.chrome --hide-scrollbars --window-size=1440,900 \
+	  --force-device-scale-factor=2 --virtual-time-budget=3000 --screenshot=build/hero.png "file://$(CURDIR)/docs/index.html#shot"
+	sips -Z 1600 -s format jpeg -s formatOptions 86 build/hero.png --out docs/hero.jpg
 
 # make probe CAM="Front Door"   (name, 1-based number, or rtsp:// URL)
 probe: app
