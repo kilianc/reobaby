@@ -63,11 +63,28 @@ enum ConfigStore {
         try JSONDecoder().decode(CameraFile.self, from: data).cameras
     }
 
+    /// The example camera a new cameras.json starts with. It is never a real camera.
+    static let templateURL = "rtsp://192.168.1.50:554/Preview_01_main"
+
+    /// Appends cameras to cameras.json (skipping hosts already there) and drops the example camera.
+    /// A file that doesn't parse is left alone: it may hold edits in progress.
+    static func add(_ new: [Camera]) throws {
+        var list = FileManager.default.fileExists(atPath: file.path) ? try decode(read()) : []
+        list.removeAll { $0.url == templateURL }
+        let hosts = Set(list.compactMap(\.host))
+        list += new.filter { $0.host.map { !hosts.contains($0) } ?? false }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+        try encoder.encode(CameraFile(cameras: list)).write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
     static func writeTemplateIfMissing() {
         guard !FileManager.default.fileExists(atPath: file.path) else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let template = CameraFile(cameras: [
-            Camera(name: nil, url: "rtsp://192.168.1.50:554/Preview_01_main", user: "admin", password: nil)
+            Camera(name: nil, url: templateURL, user: "admin", password: nil)
         ])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]

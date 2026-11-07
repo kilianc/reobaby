@@ -18,6 +18,28 @@ enum Probe {
         return (camera, ep)
     }
 
+    /// `ReoBaby --discover`: the Reolink cameras on the local network, as Add Cameras… finds them.
+    static func discover() -> Int32 {
+        let configured = Set(((try? ConfigStore.decode(ConfigStore.read())) ?? []).compactMap(\.host))
+        let hosts = Discovery.candidateHosts()
+        print("Looking at \(hosts.count) addresses…")
+        let began = Date()
+        let done = DispatchSemaphore(value: 0)
+        var result = Discovery.Result(hosts: [], blocked: false)
+        Task {
+            result = await Discovery.find()
+            done.signal()
+        }
+        done.wait()
+        if result.blocked { print("macOS is blocking local network access for this app (Privacy & Security ▸ Local Network)") }
+        let found = result.hosts
+        print(String(format: "Found %d Reolink camera%@ in %.1fs", found.count, found.count == 1 ? "" : "s", Date().timeIntervalSince(began)))
+        for host in found {
+            print("  \(host)\(configured.contains(host) ? "  (already added)" : "")")
+        }
+        return found.isEmpty ? 1 : 0
+    }
+
     /// `ReoBaby --monitor <camera> [seconds]`: background detection as the menu bar runs it.
     static func monitor(target: String, seconds: Double) -> Int32 {
         guard let (camera, endpoint) = resolve(target) else {

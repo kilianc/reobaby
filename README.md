@@ -27,8 +27,10 @@ app on my Mac, so I can keep an eye on my little dude while I work.
 - **Notifications** for motion (including person, vehicle and animal on cameras
   with AI detection) and for sound, each with a snapshot. Sound is measured on
   your Mac from each camera's audio, even while muted.
-- **Local only.** ReoBaby connects only to the cameras you list. No account, no
-  cloud, no analytics. Passwords live in the login keychain.
+- **Finds your cameras.** Add Cameras… looks for Reolink cameras on your
+  network, checks the login and adds them. No IP addresses to look up.
+- **Local only.** ReoBaby connects only to your cameras. No account, no cloud, no
+  analytics. Passwords live in the login keychain.
 - **No dependencies.** RTSP, RTP depacketizing (H.264, H.265, AAC, G.711) and
   hardware decoding are written on top of Network.framework and AVFoundation.
 
@@ -44,9 +46,9 @@ app on my Mac, so I can keep an eye on my little dude while I work.
    xattr -dr com.apple.quarantine /Applications/ReoBaby.app
    ```
 
-3. Allow **Local Network** access so ReoBaby can reach your cameras, and allow
-   notifications if you want alerts.
-4. Add your cameras (next section).
+3. Allow **Local Network** access so ReoBaby can find and reach your cameras,
+   and allow notifications if you want alerts.
+4. ReoBaby looks for your cameras and offers to add them (next section).
 
 ## Add your cameras
 
@@ -55,8 +57,17 @@ camera's network settings, often **Advanced › Server Settings**, depending on 
 firmware. Camera names and motion alerts also use the camera's HTTP API, so leave
 HTTPS or HTTP on as well.
 
-Then click the moon in the menu bar and choose **Edit Cameras…** (⌘,). This opens
-`~/.config/reobaby/cameras.json`; changes apply as soon as you save.
+Then choose **Add Cameras…** (⌘N) from the ReoBaby menu or the moon in the menu
+bar. It opens by itself the first time. ReoBaby looks for Reolink cameras on
+your network, which takes a second or two, and lists the ones it finds. Pick the
+cameras, enter the user and password you set up in the Reolink app, and click
+**Add**. ReoBaby logs in to each camera to check the password, then saves it to
+your keychain. A camera that turns the password down gets a field of its own, so
+cameras with different passwords work too. A camera on another network can be
+added by typing its address.
+
+To rename cameras or change their stream, choose **Edit Cameras…** (⌘,). This
+opens `~/.config/reobaby/cameras.json`; changes apply as soon as you save.
 
 ```json
 {
@@ -118,6 +129,7 @@ Other targets:
 | `make run` | Build and open the app from `build/`. |
 | `make release` | Build a universal (Apple silicon and Intel) app and zip it to `build/ReoBaby.zip`. |
 | `make probe CAM="Nursery"` | Connect to a camera without a window and print codecs, frame rate, errors and its name. `CAM` is a name, a number from the list, or an `rtsp://` URL. |
+| `make discover` | List the Reolink cameras on your network, as Add Cameras… finds them. |
 | `make test-server` | Start local test cameras in Docker at `rtsp://tester:testpass@127.0.0.1:8554/` with the paths `nursery`, `h264`, `h265` and `beeps`. |
 
 The Makefile signs with your Apple Development certificate if you have one, so

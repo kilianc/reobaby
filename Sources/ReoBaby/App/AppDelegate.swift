@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var promptOpen = false
     private var namesRequested = Set<String>()
     private var statusBar: StatusBarController!
+    private var addCameras: AddCamerasController?
+    private var offeredAddCameras = false
     private let alerts = Alerts()
     private var monitors: [String: CameraMonitor] = [:]
     private let defaults = UserDefaults.standard
@@ -130,8 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             loadedConfig = nil
             cameras = []
             player.stop()
-            playerView.showStatus("No cameras yet.\nCam ▸ Edit Cameras… (⌘,)")
-            refreshControls()
+            showNoCameras()
             return
         }
         guard data != loadedConfig || initial || force else { return }
@@ -139,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let list: [Camera]
         do {
-            list = try ConfigStore.decode(data)
+            list = try ConfigStore.decode(data).filter { $0.url != ConfigStore.templateURL }
         } catch {
             playerView.showStatus("cameras.json has an error:\n\(Self.describe(error))")
             return
@@ -161,8 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         syncMonitors()
         guard !list.isEmpty else {
             player.stop()
-            playerView.showStatus("No cameras in cameras.json")
-            refreshControls()
+            showNoCameras()
             return
         }
         let wanted = initial ? defaults.string(forKey: "camera") : previous?.url
@@ -173,6 +173,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             currentIndex = index
             refreshControls()
         }
+    }
+
+    /// Nothing to play yet: say how to add a camera, and offer to find them once per launch.
+    private func showNoCameras() {
+        playerView.showStatus("No cameras yet.\nReoBaby ▸ Add Cameras… (⌘N)")
+        refreshControls()
+        guard !offeredAddCameras else { return }
+        offeredAddCameras = true
+        DispatchQueue.main.async { self.showAddCameras(nil) }
     }
 
     private static func describe(_ error: Error) -> String {
@@ -377,6 +386,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func toggleNotifySound(_ sender: Any?) { alerts.notifySound.toggle() }
     @objc func clearRecent(_ sender: Any?) { alerts.clearRecent() }
 
+    @objc func showAddCameras(_ sender: Any?) {
+        if let addCameras { return addCameras.show() }
+        // Most people use one password for all their cameras; it's already in memory if so.
+        let known = cameras.lazy.compactMap { $0.endpoint()?.password }.first
+        let controller = AddCamerasController(configured: Set(cameras.compactMap(\.host)),
+                                              user: cameras.first?.user ?? "admin", password: known)
+        controller.onFinish = { [weak self] added in
+            guard let self else { return }
+            self.addCameras = nil
+            guard let first = added.first else { return }
+            self.reloadCameras(force: true)
+            self.openCamera(url: first)
+        }
+        addCameras = controller
+        controller.show()
+    }
+
     @objc func editCameras(_ sender: Any?) {
         ConfigStore.writeTemplateIfMissing()
         if !NSWorkspace.shared.open(ConfigStore.file),
@@ -472,6 +498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(item("Notify on Motion", #selector(toggleNotifyMotion(_:))))
         menu.addItem(item("Notify on Sound", #selector(toggleNotifySound(_:))))
         menu.addItem(.separator())
+        menu.addItem(item("Add Cameras…", #selector(showAddCameras(_:))))
         menu.addItem(item("Edit Cameras…", #selector(editCameras(_:))))
         let quit = NSMenuItem(title: "Quit ReoBaby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         menu.addItem(quit)
@@ -480,7 +507,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func makeCameraMenu() -> NSMenu {
         let menu = NSMenu()
         cameraItems(withShortcuts: false).forEach(menu.addItem)
-        menu.addItem(.separator())
+        if !cameras.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(item("Add Cameras…", #selector(showAddCameras(_:))))
         menu.addItem(item("Edit Cameras…", #selector(editCameras(_:))))
         return menu
     }
@@ -507,6 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About ReoBaby", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        appMenu.addItem(item("Add Cameras…", #selector(showAddCameras(_:)), "n"))
         appMenu.addItem(item("Edit Cameras…", #selector(editCameras(_:)), ","))
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide ReoBaby", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")

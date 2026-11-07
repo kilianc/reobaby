@@ -7,7 +7,7 @@ BIN = $(shell swift build $(SWIFT_FLAGS) --show-bin-path)/ReoBaby
 # ad-hoc signing ("-") makes every build a new app to the keychain.
 SIGN_ID ?= $(or $(shell security find-identity -p codesigning -v 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/ {print $$2; exit}'),-)
 
-.PHONY: build app run install release probe hero test-server test-server-stop clean
+.PHONY: build app run install release probe discover hero test-server test-server-stop clean
 
 build:
 	swift build $(SWIFT_FLAGS)
@@ -34,6 +34,10 @@ release: app
 	rm -f build/ReoBaby.zip
 	ditto -c -k --keepParent $(APP) build/ReoBaby.zip
 	@echo "build/ReoBaby.zip: $$(lipo -archs $(APP)/Contents/MacOS/ReoBaby)"
+
+# Reolink cameras on the local network, as Add Cameras… finds them.
+discover: app
+	$(APP)/Contents/MacOS/ReoBaby --discover
 
 # docs/hero.jpg, the README and link-preview picture: headless Chrome screenshots the site's
 # simulated desktop (docs/index.html#shot) at 2x, and sips scales it to 1600 px wide.

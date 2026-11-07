@@ -13,6 +13,10 @@ if let i = arguments.firstIndex(of: "--monitor") {
     exit(Probe.monitor(target: target, seconds: seconds))
 }
 
+if arguments.contains("--discover") {
+    exit(Probe.discover())
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

@@ -30,7 +30,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>ReoBaby streams video from your cameras on the local network.</string>
+	<string>ReoBaby finds your cameras on the local network and streams their video.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

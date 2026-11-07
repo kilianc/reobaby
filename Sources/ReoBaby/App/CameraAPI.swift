@@ -24,13 +24,13 @@ final class CameraAPI: NSObject, URLSessionDelegate {
     private var base: URL?
     private var token: String?
 
-    init(host: String, user: String, password: String) {
+    init(host: String, user: String, password: String, timeout: TimeInterval = 6) {
         self.host = host
         self.user = user
         self.password = password
         super.init()
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 6
+        config.timeoutIntervalForRequest = timeout
         session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
@@ -61,6 +61,31 @@ final class CameraAPI: NSObject, URLSessionDelegate {
             }
             await logout()
             DispatchQueue.main.async { completion(name) }
+        }
+    }
+
+    /// Whether this host answers like a Reolink camera. Without a login the API still replies,
+    /// asking to log in first, in its own JSON shape: that is enough to recognize it.
+    func isReolink() async -> Bool {
+        let body: [[String: Any]] = [["cmd": "GetDevInfo", "action": 0, "param": [:] as [String: Any]]]
+        for url in ["https", "http"].compactMap({ URL(string: "\($0)://\(host)") }) {
+            if let reply = try? await post(base: url, cmd: "GetDevInfo", token: nil, body: body),
+               reply.first?["cmd"] as? String == "GetDevInfo" {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Logs in and returns the camera's own name, or the reason it failed.
+    func check() async -> Result<String?, Error> {
+        do {
+            let value = try await value(of: ["cmd": "GetDevName", "action": 0, "param": ["channel": 0]])
+            let name = (value["DevName"] as? [String: Any])?["name"] as? String
+            await logout()
+            return .success(name?.isEmpty == false ? name : nil)
+        } catch {
+            return .failure(error)
         }
     }
 
