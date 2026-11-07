@@ -388,10 +388,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func showAddCameras(_ sender: Any?) {
         if let addCameras { return addCameras.show() }
-        // Most people use one password for all their cameras; it's already in memory if so.
-        let known = cameras.lazy.compactMap { $0.endpoint()?.password }.first
-        let controller = AddCamerasController(configured: Set(cameras.compactMap(\.host)),
-                                              user: cameras.first?.user ?? "admin", password: known)
+        var configured: [String: String] = [:]
+        for camera in cameras { if let host = camera.host { configured[host] = camera.displayName } }
+        let controller = AddCamerasController(configured: configured, user: cameras.first?.user ?? "admin")
         controller.onFinish = { [weak self] added in
             guard let self else { return }
             self.addCameras = nil

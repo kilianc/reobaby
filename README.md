@@ -59,11 +59,10 @@ HTTPS or HTTP on as well.
 
 Then choose **Add Cameras…** (⌘N) from the ReoBaby menu or the moon in the menu
 bar. It opens by itself the first time. ReoBaby looks for Reolink cameras on
-your network, which takes a second or two, and lists the ones it finds. Pick the
-cameras, enter the user and password you set up in the Reolink app, and click
-**Add**. ReoBaby logs in to each camera to check the password, then saves it to
-your keychain. A camera that turns the password down gets a field of its own, so
-cameras with different passwords work too. A camera on another network can be
+your network, which takes a second or two, and lists the ones it finds, like
+Wi-Fi lists networks. Click **Add** next to a camera and enter the user and
+password you set up for it in the Reolink app. ReoBaby logs in to check them,
+then saves the password to your keychain. A camera on another network can be
 added by typing its address.
 
 To rename cameras or change their stream, choose **Edit Cameras…** (⌘,). This
