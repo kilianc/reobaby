@@ -20,7 +20,7 @@ authInternalUsers:
       - action: read
 
 paths:
-  # The drawn nursery from tools/demo-scene.swift, with a quiet white-noise machine.
+  # test/demo/nursery.png (an AI-generated baby, stamped by tools/demo-frame.swift) and a quiet white-noise machine.
   nursery:
     runOnInit: >
       ffmpeg -hide_banner -loglevel error -re

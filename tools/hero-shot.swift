@@ -1,5 +1,5 @@
 // Composes the website hero: a drawn Mac desktop with a real capture of the tiny ReoBaby window
-// (playing the demo nursery) and a notification.
+// (playing the demo camera) and a notification.
 // Usage: swift tools/hero-shot.swift <window.png> <nursery.png> <icon.png> <out.png>
 //   window.png: `screencapture -l<window id>` of a 480×270 player window
 import AppKit
@@ -76,30 +76,6 @@ func drawDesktop() {
         fill(hill, hex)
     }
 
-    // Whatever you're working on: a plain document window.
-    let doc = NSRect(x: 110, y: 120, width: 740, height: 610)
-    shadowed(0.28, blur: 40, dy: -16) { fill(rrect(doc.minX, doc.minY, doc.width, doc.height, 16), 0xFFFFFF) }
-    NSGraphicsContext.saveGraphicsState()
-    rrect(doc.minX, doc.minY, doc.width, doc.height, 16).addClip()
-    fill(NSBezierPath(rect: NSRect(x: doc.minX, y: doc.minY, width: 200, height: doc.height)), 0xF3F0FA)
-    for (i, hex) in [0xFF5F57, 0xFEBC2E, 0x28C840].enumerated() {
-        fill(circle(doc.minX + 22 + CGFloat(i) * 20, doc.maxY - 22, 6.5), UInt32(hex))
-    }
-    for i in 0..<7 {
-        let y = doc.maxY - 74 - CGFloat(i) * 34
-        if i == 1 { fill(rrect(doc.minX + 12, y - 9, 176, 28, 8), 0xE2DCF5) }
-        fill(circle(doc.minX + 34, y + 5, 7), 0xC9C0EE)
-        fill(rrect(doc.minX + 50, y, CGFloat([96, 120, 80, 110, 70, 104, 88][i]), 10, 5), 0xCFC9E3)
-    }
-    let mainX = doc.minX + 248
-    fill(rrect(mainX, doc.maxY - 96, 320, 22, 8), 0x3B3870, 0.85)
-    var y = doc.maxY - 140
-    for (i, w) in [440, 410, 452, 380, 0, 446, 430, 400, 452, 300, 0, 436, 420, 360].enumerated() {
-        if w > 0 { fill(rrect(mainX, y, CGFloat(w), 10, 5), i < 4 ? 0xD9D5E8 : 0xE2DFEE) }
-        y -= w > 0 ? 24 : 18
-    }
-    NSGraphicsContext.restoreGraphicsState()
-
     // Menu bar.
     fill(NSBezierPath(rect: NSRect(x: 0, y: H - 32, width: W, height: 32)), 0xFFFFFF, 0.3)
     text("Finder", 22, H - 24, size: 13.5, weight: .bold)
@@ -135,12 +111,13 @@ func drawDesktop() {
     NSGraphicsContext.saveGraphicsState()
     rrect(thumb.minX, thumb.minY, thumb.width, thumb.height, 9).addClip()
     let sw = scene.size.width, sh = scene.size.height
-    scene.draw(in: thumb, from: NSRect(x: sw * 0.27, y: sh * 0.3, width: sh * 0.36, height: sh * 0.36), operation: .sourceOver, fraction: 1)
+    scene.draw(in: thumb, from: NSRect(x: sw * 0.32, y: sh * 0.40, width: sh * 0.40, height: sh * 0.40), operation: .sourceOver, fraction: 1)
     NSGraphicsContext.restoreGraphicsState()
 
     // The tiny player window, floating bottom right. The capture includes its shadow margin.
-    let pts = NSSize(width: window.size.width, height: window.size.height)
-    window.draw(in: NSRect(x: W - 26 - pts.width + 23, y: 34 - 30, width: pts.width, height: pts.height))
+    // The shadow margin is even left and right, and deeper below than above (about 1.6×).
+    let pts = window.size, side = (pts.width - 480) / 2, below = (pts.height - 270) * 0.66
+    window.draw(in: NSRect(x: W - 28 - 480 - side, y: 28 - below, width: pts.width, height: pts.height))
 }
 
 // The capture is 2x pixels; NSImage reports it in points only if the PNG says 144 dpi, so normalise.

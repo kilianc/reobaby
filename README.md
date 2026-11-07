@@ -133,11 +133,11 @@ build/ReoBaby.app/Contents/MacOS/ReoBaby --monitor "Nursery" 30
 
 ### Pictures without a real camera
 
-Every picture of a baby here is drawn, not filmed. `tools/demo-scene.swift` draws
-the nursery, `make test-server` streams it as the `nursery` camera, and
-`tools/hero-shot.swift` puts a window capture on a drawn desktop.
-`REOBABY_CONFIG_DIR` points the app at a different camera list, and
-`REOBABY_PIN_CONTROLS=1` keeps the controls visible:
+Every picture of a baby here is AI-generated, not filmed. `test/demo/nursery-photo.jpg` is the
+photo; `tools/demo-frame.swift` stamps it with a camera clock into `test/demo/nursery.png`, which
+`make test-server` streams as the `nursery` camera. `tools/hero-shot.swift` puts a capture of the
+app's window on a drawn desktop. `REOBABY_CONFIG_DIR` points the app at a different camera list,
+and `REOBABY_PIN_CONTROLS=1` keeps the controls visible:
 
 ```bash
 mkdir -p /tmp/reobaby-demo
@@ -145,8 +145,8 @@ echo '{"cameras":[{"name":"Nursery","url":"rtsp://127.0.0.1:8554/nursery","user"
 open -n --env REOBABY_CONFIG_DIR=/tmp/reobaby-demo --env REOBABY_PIN_CONTROLS=1 build/ReoBaby.app
 ```
 
-The website in `docs/` is a desktop simulation built from the same drawings. The
-app icon comes from `tools/make-icon.swift`.
+The website in `docs/` is a desktop simulation using the same photo. The app icon comes from
+`tools/make-icon.swift`.
 
 ## License
 
