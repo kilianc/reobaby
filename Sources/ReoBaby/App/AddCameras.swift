@@ -64,9 +64,11 @@ final class AddCamerasController: NSObject, NSWindowDelegate {
     private var rows: [Row] = []
     private var configured: Set<String>
     private var added: [String] = []
+    private let prefilled: Bool
 
     init(configured: Set<String>, user: String, password knownPassword: String?) {
         self.configured = configured
+        prefilled = knownPassword != nil
         super.init()
         panel.title = "Add Cameras"
         panel.delegate = self
@@ -85,7 +87,6 @@ final class AddCamerasController: NSObject, NSWindowDelegate {
         password.placeholderString = "Tried on every camera"
         if let knownPassword { password.stringValue = knownPassword }
         note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        hint(knownPassword == nil ? "" : "Filled in with the password of a camera you already added.")
 
         searchAgain.target = self
         searchAgain.action = #selector(search)
@@ -165,6 +166,7 @@ final class AddCamerasController: NSObject, NSWindowDelegate {
             default: summary = "Found \(new) new cameras."
             }
             setBusy(false, summary)
+            if new > 0 && prefilled { hint("The password is filled in from a camera you already added.") }
             panel.makeFirstResponder(password.stringValue.isEmpty ? password : addButton)
         }
     }
