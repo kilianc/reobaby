@@ -18,7 +18,7 @@ enum Probe {
         return (camera, ep)
     }
 
-    /// `ReoBaby --discover`: the Reolink cameras on the local network, as Add Cameras… finds them.
+    /// `ReoBaby --discover`: the Reolink cameras on the local network, as the Cameras window finds them.
     static func discover() -> Int32 {
         let configured = Set(((try? ConfigStore.decode(ConfigStore.read())) ?? []).compactMap(\.host))
         let hosts = Discovery.candidateHosts()

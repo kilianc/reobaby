@@ -35,7 +35,7 @@ release: app
 	ditto -c -k --keepParent $(APP) build/ReoBaby.zip
 	@echo "build/ReoBaby.zip: $$(lipo -archs $(APP)/Contents/MacOS/ReoBaby)"
 
-# Reolink cameras on the local network, as Add Cameras… finds them.
+# Reolink cameras on the local network, as the Cameras window finds them.
 discover: app
 	$(APP)/Contents/MacOS/ReoBaby --discover
 

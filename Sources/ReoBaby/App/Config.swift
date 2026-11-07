@@ -66,18 +66,27 @@ enum ConfigStore {
     /// The example camera a new cameras.json starts with. It is never a real camera.
     static let templateURL = "rtsp://192.168.1.50:554/Preview_01_main"
 
-    /// Appends cameras to cameras.json (skipping hosts already there) and drops the example camera.
-    /// A file that doesn't parse is left alone: it may hold edits in progress.
-    static func add(_ new: [Camera]) throws {
-        var list = FileManager.default.fileExists(atPath: file.path) ? try decode(read()) : []
-        list.removeAll { $0.url == templateURL }
-        let hosts = Set(list.compactMap(\.host))
-        list += new.filter { $0.host.map { !hosts.contains($0) } ?? false }
+    /// The cameras in cameras.json, without the example camera; none when there is no file.
+    /// Throws when the file doesn't parse: it may hold edits in progress, so it must not be overwritten.
+    static func load() throws -> [Camera] {
+        guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+        return try decode(read()).filter { $0.url != templateURL }
+    }
+
+    static func save(_ cameras: [Camera]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
-        try encoder.encode(CameraFile(cameras: list)).write(to: file, options: .atomic)
+        try encoder.encode(CameraFile(cameras: cameras)).write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
+    /// Appends cameras to cameras.json, skipping hosts already there.
+    static func add(_ new: [Camera]) throws {
+        var list = try load()
+        let hosts = Set(list.compactMap(\.host))
+        list += new.filter { $0.host.map { !hosts.contains($0) } ?? false }
+        try save(list)
     }
 
     static func writeTemplateIfMissing() {
@@ -146,6 +155,17 @@ enum Keychain {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    static func deletePassword(account: String) {
+        lock.lock()
+        cache[account] = .some(nil)
+        lock.unlock()
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ] as CFDictionary)
     }
 
     static func setPassword(_ password: String, account: String) {

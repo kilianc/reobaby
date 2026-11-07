@@ -27,7 +27,7 @@ app on my Mac, so I can keep an eye on my little dude while I work.
 - **Notifications** for motion (including person, vehicle and animal on cameras
   with AI detection) and for sound, each with a snapshot. Sound is measured on
   your Mac from each camera's audio, even while muted.
-- **Finds your cameras.** Add Cameras… looks for Reolink cameras on your
+- **Finds your cameras.** The Cameras window looks for Reolink cameras on your
   network, checks the login and adds them. No IP addresses to look up.
 - **Local only.** ReoBaby connects only to your cameras. No account, no cloud, no
   analytics. Passwords live in the login keychain.
@@ -57,16 +57,20 @@ camera's network settings, often **Advanced › Server Settings**, depending on 
 firmware. Camera names and motion alerts also use the camera's HTTP API, so leave
 HTTPS or HTTP on as well.
 
-Then choose **Add Cameras…** (⌘N) from the ReoBaby menu or the moon in the menu
-bar. It opens by itself the first time. ReoBaby looks for Reolink cameras on
-your network, which takes a second or two, and lists the ones it finds, like
-Wi-Fi lists networks. Click **Add** next to a camera and enter the user and
-password you set up for it in the Reolink app. ReoBaby logs in to check them,
-then saves the password to your keychain. A camera on another network can be
-added by typing its address.
+Then choose **Cameras…** (⌘,) from the ReoBaby menu or the moon in the menu bar.
+It opens by itself the first time. ReoBaby looks for Reolink cameras on your
+network, which takes a second or two, and lists the ones it finds, like Wi-Fi
+lists networks. Click **Add** next to a camera and enter the user and password
+you set up for it in the Reolink app. ReoBaby logs in to check them, then saves
+the password to your keychain. A camera on another network can be added by
+typing its address.
 
-To rename cameras or change their stream, choose **Edit Cameras…** (⌘,). This
-opens `~/.config/reobaby/cameras.json`; changes apply as soon as you save.
+Your cameras are listed in the same window. **Edit** renames a camera, switches
+its picture between high and low resolution, changes its login, or removes it.
+
+ReoBaby keeps the list in `~/.config/reobaby/cameras.json`, which **Open
+cameras.json** at the bottom of the window opens. Changes to the file apply as
+soon as you save it.
 
 ```json
 {
@@ -128,7 +132,7 @@ Other targets:
 | `make run` | Build and open the app from `build/`. |
 | `make release` | Build a universal (Apple silicon and Intel) app and zip it to `build/ReoBaby.zip`. |
 | `make probe CAM="Nursery"` | Connect to a camera without a window and print codecs, frame rate, errors and its name. `CAM` is a name, a number from the list, or an `rtsp://` URL. |
-| `make discover` | List the Reolink cameras on your network, as Add Cameras… finds them. |
+| `make discover` | List the Reolink cameras on your network, as the Cameras window finds them. |
 | `make test-server` | Start local test cameras in Docker at `rtsp://tester:testpass@127.0.0.1:8554/` with the paths `nursery`, `h264`, `h265` and `beeps`. |
 
 The Makefile signs with your Apple Development certificate if you have one, so
