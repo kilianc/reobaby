@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReoBaby</title>
+<meta name="description" content="A tiny Mac window for your Reolink baby cameras. Watch your little one while you work, with nothing in the cloud.">
+<meta property="og:title" content="ReoBaby">
+<meta property="og:description" content="A tiny Mac window for your Reolink baby cameras. Watch your little one while you work, with nothing in the cloud.">
+<meta property="og:image" content="https://kilianc.github.io/reobaby/hero.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.png">
+<style>
+  :root {
+    --bg: #f6f2ff; --bg-2: #ebe4ff; --ink: #1f1b4d; --muted: #5d5788; --line: #ddd5fb;
+    --card: #ffffff; --accent: #6a57c2; --accent-ink: #ffffff; --moon: #ffe2a0; --pink: #f6b5cf;
+    --code: #241f5c; --code-ink: #f1edff; --ok: #2f9e6a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141238; --bg-2: #1c1a4c; --ink: #efebff; --muted: #b0a9dc; --line: #2f2b6b;
+            --card: #201d55; --accent: #b3a5ff; --accent-ink: #141238; --code: #0e0c2b; --code-ink: #efebff; --ok: #6fd3a2; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.6 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--accent); }
+  img { max-width: 100%; height: auto; display: block; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+  /* Page header */
+  .hero {
+    text-align: center; padding: 56px 0 28px;
+    background:
+      radial-gradient(2px 2px at 12% 30%, var(--moon) 50%, transparent 51%),
+      radial-gradient(2px 2px at 82% 18%, var(--moon) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 68% 42%, var(--pink) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 28% 12%, var(--pink) 50%, transparent 51%),
+      linear-gradient(var(--bg-2), var(--bg));
+  }
+  .app-icon { width: 112px; margin: 0 auto 6px; filter: drop-shadow(0 10px 18px rgb(60 40 140 / .25)); }
+  h1 { font-size: clamp(42px, 8vw, 64px); line-height: 1.05; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .tagline { font-size: clamp(18px, 2.6vw, 22px); color: var(--muted); max-width: 640px; margin: 0 auto 24px; }
+  .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .button {
+    display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 999px;
+    font: inherit; font-weight: 700; text-decoration: none; border: 2px solid var(--accent); color: var(--accent);
+    background: transparent; cursor: pointer;
+  }
+  .button.primary { background: var(--accent); color: var(--accent-ink); }
+  .button svg { width: 18px; height: 18px; }
+  .fine { font-size: 14px; color: var(--muted); margin-top: 12px; }
+
+  /* The simulated Mac */
+  .demo { max-width: 1240px; margin: 0 auto; padding: 8px 16px 0; }
+  .monitor {
+    background: #0c0b12; border-radius: 22px; padding: 12px;
+    box-shadow: 0 40px 80px -30px rgb(30 20 90 / .55), inset 0 0 0 1px #2a2838;
+  }
+  .viewport { position: relative; overflow: hidden; border-radius: 10px; background: #5b50c8; touch-action: none; }
+  .stage {
+    position: absolute; left: 0; top: 0; width: 1440px; height: 900px; transform-origin: 0 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+    font-size: 13px; line-height: 1.3; color: #1d1b30; user-select: none; -webkit-user-select: none;
+    cursor: default; overflow: hidden;
+  }
+  .stage svg { display: block; }
+  .wallpaper { position: absolute; inset: 0; }
+
+  .menubar {
+    position: absolute; left: 0; top: 0; right: 0; height: 30px; z-index: 200;
+    display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 10px;
+    background: rgb(255 255 255 / .3); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+    font-size: 13.5px; color: #16142e;
+  }
+  .mb-left, .mb-right { display: flex; align-items: center; height: 100%; }
+  .mb-item { padding: 0 9px; height: 24px; display: flex; align-items: center; border-radius: 6px; white-space: nowrap; }
+  .mb-item.bold { font-weight: 700; }
+  .mb-item.open, .mb-item.button-like:active { background: rgb(0 0 0 / .1); }
+  .mb-icon { padding: 0 8px; height: 24px; display: flex; align-items: center; border-radius: 6px; }
+  .mb-icon svg { width: 18px; height: 18px; }
+  #moon { position: relative; }
+  #moon .dot { position: absolute; top: 3px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: #ff3b30; display: none; }
+  #moon.alert .dot { display: block; }
+  .mb-clock { padding: 0 8px; font-variant-numeric: tabular-nums; }
+
+  .menu {
+    position: absolute; z-index: 300; min-width: 220px; padding: 5px;
+    background: rgb(246 245 250 / .82); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
+    border-radius: 11px; box-shadow: 0 0 0 .5px rgb(0 0 0 / .18), 0 12px 32px rgb(0 0 0 / .22);
+    font-size: 13.5px; color: #16142e;
+  }
+  .menu .mi { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 6px; border-radius: 6px; white-space: nowrap; }
+  .menu .mi:hover:not(.disabled) { background: #6a57c2; color: #fff; }
+  .menu .mi .check { width: 14px; flex: none; text-align: center; font-size: 12px; }
+  .menu .mi .ic { width: 16px; height: 16px; flex: none; }
+  .menu .mi .ic svg { width: 16px; height: 16px; }
+  .menu .mi .label { flex: 1; }
+  .menu .mi .key { opacity: .5; margin-left: 24px; font-size: 13px; }
+  .menu .mi.disabled { opacity: .38; }
+  .menu .sep { height: 1px; margin: 5px 10px; background: rgb(0 0 0 / .1); }
+
+  .window { position: absolute; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 0 0 .5px rgb(0 0 0 / .45), 0 24px 70px rgb(20 10 60 / .38), 0 4px 14px rgb(20 10 60 / .2); }
+  .lights { position: absolute; left: 14px; top: 13px; display: flex; gap: 8px; z-index: 5; }
+  .lights b { width: 12px; height: 12px; border-radius: 50%; display: grid; place-items: center; font: 700 9px/1 -apple-system, sans-serif; color: transparent; }
+  .lights b:nth-child(1) { background: #ff5f57; box-shadow: inset 0 0 0 .5px #e0443e; }
+  .lights b:nth-child(2) { background: #febc2e; box-shadow: inset 0 0 0 .5px #dea123; }
+  .lights b:nth-child(3) { background: #28c840; box-shadow: inset 0 0 0 .5px #1aab29; }
+  .lights:hover b { color: rgb(0 0 0 / .55); }
+
+  /* A plain editor, standing in for whatever you're working on */
+  #editor { left: 96px; top: 96px; width: 830px; height: 590px; background: #1f1e2b; color: #e6e4f0; display: flex; flex-direction: column; }
+  #editor .titlebar { height: 40px; flex: none; display: flex; align-items: center; justify-content: center; background: #2a2838; color: #c9c5dc; font-weight: 600; font-size: 13px; border-bottom: 1px solid #15141d; }
+  #editor .body { flex: 1; display: flex; min-height: 0; }
+  #editor .side { width: 190px; background: #24232f; border-right: 1px solid #15141d; padding: 12px 8px; font-size: 12.5px; color: #b5b1c9; }
+  #editor .side div { padding: 3px 8px; border-radius: 5px; }
+  #editor .side .dir { color: #8d89a6; font-weight: 600; margin-top: 6px; }
+  #editor .side .sel { background: #3d3a5c; color: #fff; }
+  #editor pre { margin: 0; padding: 16px 0; font: 11.5px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; flex: 1; counter-reset: ln; }
+  #editor pre span.l { display: block; padding-left: 52px; position: relative; white-space: pre; }
+  #editor pre span.l::before { counter-increment: ln; content: counter(ln); position: absolute; left: 0; width: 36px; text-align: right; color: #5d5a73; }
+  #editor .k { color: #ff7ab2; font-weight: 600; } #editor .t { color: #dabaff; } #editor .s { color: #ff8170; }
+  #editor .c { color: #7f8c98; } #editor .n { color: #d9c97c; } #editor .f { color: #67b7a4; }
+
+  /* The ReoBaby player */
+  .player { background: #000; container-type: inline-size; }
+  .player .feed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+  .player .osd { position: absolute; color: rgb(255 255 255 / .9); font: 500 1.875cqw/1 ui-monospace, SFMono-Regular, Menlo, monospace; text-shadow: 0 1px 2px #000; pointer-events: none; white-space: pre; }
+  .player .osd.time { left: 2.3cqw; top: 2.6cqw; }
+  .player .osd.name { right: 2.3cqw; bottom: 2.6cqw; }
+  .player .zz { position: absolute; pointer-events: none; }
+  .player .zz i { position: absolute; font: 900 2.2cqw/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; font-style: normal; color: rgb(255 255 255 / .85); opacity: 0; animation: float 4.5s ease-in infinite; }
+  .player .zz i:nth-child(2) { animation-delay: 1.5s; font-size: 2.8cqw; }
+  .player .zz i:nth-child(3) { animation-delay: 3s; font-size: 1.8cqw; }
+  .player .zz.coo i { animation-duration: 2.2s; color: #ffe2a0; }
+  @keyframes float { 0% { opacity: 0; transform: translate(0, 0) rotate(-8deg); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(3cqw, -7cqw) rotate(10deg); } }
+  .player .status { position: absolute; inset: 0; display: grid; place-items: center; color: rgb(255 255 255 / .85); font-weight: 500; font-size: 13px; text-shadow: 0 1px 2px #000; background: #000; opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .player.connecting .status { opacity: 1; }
+  .player .lights, .player .hud { opacity: 0; transition: opacity .2s; }
+  .player:hover .lights, .player:hover .hud, .player.hud-on .hud, .player.hud-on .lights { opacity: 1; }
+  .hud {
+    position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); max-width: calc(100% - 16px);
+    display: flex; align-items: center; gap: 2px; padding: 0 6px; height: 30px; border-radius: 15px;
+    background: rgb(36 34 44 / .6); -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5);
+    box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .14); color: #fff; z-index: 4;
+  }
+  .hud button { all: unset; height: 26px; min-width: 30px; display: grid; place-items: center; border-radius: 8px; color: #fff; }
+  .hud button:hover { background: rgb(255 255 255 / .12); }
+  .hud button svg { width: 16px; height: 16px; }
+  .hud .cam { font-weight: 600; font-size: 12px; padding: 0 6px; display: flex; gap: 3px; align-items: center; max-width: 200px; }
+  .hud .cam svg { width: 9px; height: 11px; opacity: .8; }
+  .slider { position: relative; width: 64px; height: 26px; margin: 0 6px; }
+  .slider .track { position: absolute; left: 0; right: 0; top: 11.5px; height: 3px; border-radius: 2px; background: rgb(255 255 255 / .3); }
+  .slider .fill { position: absolute; left: 0; top: 11.5px; height: 3px; border-radius: 2px; background: #fff; }
+  .slider .knob { position: absolute; top: 7.5px; width: 11px; height: 11px; margin-left: -5.5px; border-radius: 50%; background: #fff; box-shadow: 0 .5px 1.5px rgb(0 0 0 / .35); }
+  .player.narrow .slider { display: none; }
+  .corner { position: absolute; width: 16px; height: 16px; z-index: 6; }
+  .corner[data-c=nw] { left: 0; top: 0; cursor: nwse-resize; } .corner[data-c=se] { right: 0; bottom: 0; cursor: nwse-resize; }
+  .corner[data-c=ne] { right: 0; top: 0; cursor: nesw-resize; } .corner[data-c=sw] { left: 0; bottom: 0; cursor: nesw-resize; }
+  .player.hidden, .peek.hidden { display: none; }
+
+  .peek { position: absolute; width: 360px; height: 203px; z-index: 250; cursor: pointer; transform-origin: 85% 0; animation: pop .18s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: scale(.92) translateY(-6px); } }
+
+  .desk-icon { position: absolute; right: 34px; top: 470px; width: 92px; text-align: center; color: #fff; font-size: 12px; font-weight: 500; text-shadow: 0 1px 3px rgb(0 0 0 / .5); }
+  .desk-icon img { width: 64px; margin: 0 auto 4px; filter: drop-shadow(0 4px 6px rgb(0 0 0 / .25)); }
+  .desk-icon span { padding: 1px 5px; border-radius: 4px; }
+  .desk-icon.sel span { background: #6a57c2; }
+
+  .notif {
+    position: absolute; right: 12px; top: 40px; width: 356px; z-index: 260; padding: 13px 14px 13px 12px;
+    display: grid; grid-template-columns: 40px 1fr auto; gap: 11px; align-items: center;
+    background: rgb(250 249 255 / .8); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
+    border-radius: 22px; box-shadow: 0 0 0 .5px rgb(0 0 0 / .12), 0 10px 30px rgb(30 20 80 / .25); cursor: pointer;
+    transition: transform .45s cubic-bezier(.2, .9, .25, 1.05), opacity .3s;
+  }
+  .notif.out { transform: translateX(400px); opacity: 0; }
+  .notif img { width: 40px; }
+  .notif .t { font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
+  .notif .t small { font-weight: 400; color: rgb(0 0 0 / .45); font-size: 12px; }
+  .notif .b { color: rgb(0 0 0 / .8); }
+  .notif .thumb { width: 46px; height: 46px; border-radius: 9px; background-size: 330%; background-repeat: no-repeat; }
+  .notif .x { position: absolute; left: -6px; top: -6px; width: 20px; height: 20px; border-radius: 50%; background: rgb(250 249 255 / .95); box-shadow: 0 0 0 .5px rgb(0 0 0 / .2), 0 2px 6px rgb(0 0 0 / .15); display: none; place-items: center; color: #555; font-size: 12px; }
+  .notif:hover .x { display: grid; }
+
+  /* Guide under the desktop */
+  .guide { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; margin-top: 18px; }
+  @media (max-width: 820px) { .guide { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; }
+  .panel h3 { margin: 0 0 8px; font-size: 18px; }
+  .todo { list-style: none; margin: 0; padding: 0; font-size: 15.5px; }
+  .todo li { padding: 4px 0 4px 28px; position: relative; color: var(--muted); }
+  .todo li::before { content: ""; position: absolute; left: 0; top: 7px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); }
+  .todo li.done { color: var(--ink); }
+  .todo li.done::before { background: var(--ok); border-color: var(--ok); }
+  .todo li.done::after { content: ""; position: absolute; left: 5.5px; top: 10px; width: 5px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .events { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+  .events .button { padding: 8px 14px; font-size: 15px; }
+  .log { list-style: none; margin: 0; padding: 0; font-size: 14px; max-height: 168px; overflow: auto; }
+  .log li { padding: 5px 0; border-top: 1px solid var(--line); display: flex; gap: 10px; }
+  .log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .log .quiet { color: var(--muted); }
+  .log:empty::before { content: "Nothing yet. The crib camera is listening."; color: var(--muted); }
+  .phone-note { display: none; font-size: 14px; color: var(--muted); text-align: center; margin: 10px 0 0; }
+  @media (max-width: 700px) { .phone-note { display: block; } }
+
+  section { padding: 60px 0 8px; }
+  h2 { font-size: clamp(28px, 4vw, 36px); margin: 0 0 18px; letter-spacing: -0.01em; }
+  .story { max-width: 680px; margin: 0 auto; font-size: 19px; }
+  .story .sig { color: var(--muted); font-style: italic; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px 22px 18px; }
+  .card h3 { margin: 10px 0 6px; font-size: 19px; }
+  .card p { margin: 0; color: var(--muted); font-size: 16px; }
+  .card svg { width: 34px; height: 34px; color: var(--accent); }
+  ol.steps { padding-left: 22px; }
+  ol.steps li { margin-bottom: 12px; }
+  pre.code { background: var(--code); color: var(--code-ink); border-radius: 14px; padding: 16px 18px; overflow-x: auto; font: 14.5px/1.55 ui-monospace, "SF Mono", Menlo, monospace; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em; }
+  .note { color: var(--muted); font-size: 16px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; gap: 0; } }
+  footer { text-align: center; color: var(--muted); font-size: 14px; padding: 64px 20px 48px; }
+  @media (prefers-reduced-motion: reduce) { .player .zz i, .peek, .notif { animation: none; transition: none; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="app-icon" src="icon.png" alt="" width="112" height="112">
+    <h1>ReoBaby</h1>
+    <p class="tagline">Keep an eye on your little one while you work. A tiny Mac window for your Reolink cameras, with nothing in the cloud.</p>
+    <div class="actions">
+      <a class="button primary" href="https://github.com/kilianc/reobaby/releases/latest/download/ReoBaby.zip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+        Download for Mac
+      </a>
+      <a class="button" href="https://github.com/kilianc/reobaby">Source on GitHub</a>
+    </div>
+    <p class="fine">macOS 14 or later · Apple silicon and Intel · Free and open source</p>
+  </div>
+</header>
+
+<div class="demo">
+  <div class="monitor">
+    <div class="viewport" id="viewport" role="application" aria-label="A simulated Mac desktop running ReoBaby. Try it with your mouse.">
+      <div class="stage" id="stage">
+        <svg class="wallpaper" viewBox="0 0 1440 900" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#5b50c8"/><stop offset=".38" stop-color="#9a86e8"/>
+              <stop offset=".72" stop-color="#f0b2d0"/><stop offset="1" stop-color="#ffd3a8"/>
+            </linearGradient>
+            <radialGradient id="moonglow"><stop offset="0" stop-color="#fff1c9" stop-opacity=".4"/><stop offset="1" stop-color="#fff1c9" stop-opacity="0"/></radialGradient>
+            <mask id="wpmoon"><circle cx="1010" cy="340" r="40" fill="#fff"/><circle cx="1032" cy="326" r="35" fill="#000"/></mask>
+          </defs>
+          <rect width="1440" height="900" fill="url(#sky)"/>
+          <circle cx="1010" cy="340" r="120" fill="url(#moonglow)"/>
+          <circle cx="1010" cy="340" r="40" fill="#fff1c9" mask="url(#wpmoon)"/>
+          <g fill="#fff" opacity=".7">
+            <circle cx="980" cy="140" r="2.2"/><circle cx="1120" cy="200" r="1.6"/><circle cx="900" cy="260" r="1.4"/>
+            <circle cx="1250" cy="280" r="1.8"/><circle cx="60" cy="100" r="1.8"/><circle cx="1360" cy="150" r="1.5"/>
+          </g>
+          <path d="M0 570 C380 470 900 690 1440 600 V900 H0Z" fill="#b59bea"/>
+          <path d="M0 680 C500 800 1000 560 1440 650 V900 H0Z" fill="#8c76da"/>
+          <path d="M0 790 C420 700 1000 890 1440 810 V900 H0Z" fill="#6a57c2"/>
+        </svg>
+
+        <div class="desk-icon" id="deskIcon"><img src="icon.png" alt=""><span>ReoBaby</span></div>
+
+        <div class="window" id="editor">
+          <div class="titlebar" id="editorBar">
+            <div class="lights"><b>×</b><b>−</b><b>+</b></div>
+            Alerts.swift
+          </div>
+          <div class="body">
+            <div class="side">
+              <div class="dir">ReoBaby</div>
+              <div>App</div><div>Media</div><div class="dir">Monitor</div>
+              <div class="sel">Alerts.swift</div><div>AudioLevelMeter.swift</div><div>CameraMonitor.swift</div>
+              <div>RTSP</div>
+            </div>
+<pre><span class="l"><span class="c">/// After a camera notifies, its further events are dropped for this long,</span></span><span class="l"><span class="c">/// so someone walking into a room gives one notification, not twenty.</span></span><span class="l"><span class="k">var</span> cooldown: <span class="t">TimeInterval</span> { <span class="t">UserDefaults</span>.standard.<span class="f">double</span>(forKey: <span class="s">"notifyCooldown"</span>) }</span><span class="l"><span class="c">/// Events in the first seconds of a burst only make it more specific.</span></span><span class="l"><span class="k">private let</span> gather: <span class="t">TimeInterval</span> = <span class="n">3</span></span><span class="l"> </span><span class="l"><span class="k">func</span> <span class="f">handle</span>(<span class="k">_</span> event: <span class="t">CameraMonitor</span>.<span class="t">Event</span>, from monitor: <span class="t">CameraMonitor</span>) {</span><span class="l">    <span class="k">guard</span> kind == <span class="s">"motion"</span> ? notifyMotion : notifySound <span class="k">else</span> { <span class="k">return</span> }</span><span class="l"> </span><span class="l">    <span class="k">let</span> url = monitor.camera.url</span><span class="l">    <span class="k">let</span> now = <span class="t">Date</span>()</span><span class="l">    <span class="k">if var</span> burst = bursts[url], now.<span class="f">timeIntervalSince</span>(burst.start) &lt; cooldown {</span><span class="l">        <span class="c">// Still gathering: keep the most specific event. Afterwards: drop it.</span></span><span class="l">        <span class="k">guard</span> now.<span class="f">timeIntervalSince</span>(burst.start) &lt; gather, rank &gt; burst.rank <span class="k">else</span> { <span class="k">return</span> }</span><span class="l">        (burst.text, burst.symbol, burst.rank) = (text, symbol, rank)</span><span class="l">        bursts[url] = burst</span><span class="l">        <span class="k">return</span></span><span class="l">    }</span><span class="l">    bursts[url] = <span class="t">Burst</span>(start: now, text: text, symbol: symbol, rank: rank)</span><span class="l"> </span><span class="l">    <span class="t">DispatchQueue</span>.main.<span class="f">asyncAfter</span>(deadline: .<span class="f">now</span>() + gather) { [<span class="k">weak self</span>] <span class="k">in</span></span><span class="l">        <span class="k">guard let</span> burst = <span class="k">self</span>?.bursts[url], burst.start == now <span class="k">else</span> { <span class="k">return</span> }</span><span class="l">        <span class="t">Self</span>.<span class="f">notify</span>(burst.text, camera: name, from: monitor)</span><span class="l">    }</span><span class="l">}</span></pre>
+          </div>
+        </div>
+
+        <div class="window player" id="player">
+          <img class="feed" alt="">
+          <div class="zz" aria-hidden="true"><i>z</i><i>z</i><i>z</i></div>
+          <div class="osd time" aria-hidden="true"></div>
+          <div class="osd name" aria-hidden="true"></div>
+          <div class="status">Connecting…</div>
+          <div class="lights"><b>×</b><b>−</b><b>+</b></div>
+          <div class="hud">
+            <button class="cam" title="Switch camera"><span class="camname"></span><svg viewBox="0 0 9 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 4 4.5 1 7.5 4M1.5 8l3 3 3-3"/></svg></button>
+            <button class="mute" title="Mute"></button>
+            <div class="slider" title="Volume"><div class="track"></div><div class="fill"></div><div class="knob"></div></div>
+            <button class="pin" title="Float on top"></button>
+          </div>
+          <div class="corner" data-c="nw"></div><div class="corner" data-c="ne"></div>
+          <div class="corner" data-c="sw"></div><div class="corner" data-c="se"></div>
+        </div>
+
+        <div class="window player peek hidden" id="peek">
+          <img class="feed" alt="">
+          <div class="zz" aria-hidden="true"><i>z</i><i>z</i><i>z</i></div>
+          <div class="osd time" aria-hidden="true"></div>
+          <div class="osd name" aria-hidden="true"></div>
+        </div>
+
+        <div class="menubar" id="menubar">
+          <div class="mb-left" id="mbLeft"></div>
+          <div class="mb-right">
+            <div class="mb-icon" id="moon" title="ReoBaby">
+              <svg viewBox="0 0 18 18" aria-hidden="true"><defs><mask id="mbcrescent"><circle cx="9" cy="9" r="4.5" fill="#fff"/><circle cx="11.1" cy="7.6" r="3.9" fill="#000"/></mask></defs>
+                <circle cx="9" cy="9" r="7.4" fill="none" stroke="#16142e" stroke-width="1.6"/><circle cx="9" cy="9" r="4.5" fill="#16142e" mask="url(#mbcrescent)"/></svg>
+              <span class="dot"></span>
+            </div>
+            <div class="mb-icon"><svg viewBox="0 0 28 18" aria-hidden="true"><rect x="1" y="4" width="22" height="10" rx="3" fill="none" stroke="#16142e" stroke-opacity=".55" stroke-width="1.2"/><rect x="3" y="6" width="14" height="6" rx="1.6" fill="#16142e"/><path d="M24.5 7.5v3" stroke="#16142e" stroke-opacity=".55" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            <div class="mb-icon"><svg viewBox="0 0 18 18" aria-hidden="true"><g fill="none" stroke="#16142e" stroke-width="1.7" stroke-linecap="round"><path d="M2.2 7.2a10 10 0 0 1 13.6 0"/><path d="M4.6 9.8a6.4 6.4 0 0 1 8.8 0"/><path d="M7 12.3a3 3 0 0 1 4 0"/></g><circle cx="9" cy="14.6" r="1.2" fill="#16142e"/></svg></div>
+            <div class="mb-icon"><svg viewBox="0 0 18 18" aria-hidden="true"><g fill="none" stroke="#16142e" stroke-width="1.4"><rect x="2" y="3" width="14" height="5" rx="2.5"/><rect x="2" y="10" width="14" height="5" rx="2.5"/></g><circle cx="13.5" cy="5.5" r="1.6" fill="#16142e"/><circle cx="4.5" cy="12.5" r="1.6" fill="#16142e"/></svg></div>
+            <div class="mb-clock" id="clock"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="phone-note">This is a tiny Mac. It works best on a computer.</p>
+
+  <div class="guide">
+    <div class="panel">
+      <h3>Try it</h3>
+      <ul class="todo">
+        <li data-step="hover">Hover the little window to see its controls.</li>
+        <li data-step="move">Drag it anywhere, or resize it from a corner.</li>
+        <li data-step="pin">Unpin it, then click the editor: it slips behind. Pin it again and it floats.</li>
+        <li data-step="peek">Close it, then hover the moon in the menu bar to peek.</li>
+        <li data-step="menu">Click the moon to see what happened while you weren't looking.</li>
+        <li data-step="notify">Wait for a notification, then click it.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>Make something happen</h3>
+      <div class="events">
+        <button class="button" id="coo">Baby coos</button>
+        <button class="button" id="walk">Someone walks in</button>
+      </div>
+      <ul class="log" id="log" aria-live="polite"></ul>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+  <section class="story">
+    <h2>Why I made it</h2>
+    <p>I'm a new dad. I didn't want videos of my son on someone else's servers, and the baby monitors I tried had grainy video and clumsy apps.</p>
+    <p>So I bought a few Reolink zoom cameras and kept everything on my home network. ReoBaby replaces the Reolink app on my Mac: a small window in the corner of my screen, so I can keep an eye on my little dude while I work.</p>
+    <p class="sig">Kilian</p>
+  </section>
+
+  <section>
+    <h2>What it does</h2>
+    <div class="features">
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="3"/><rect x="12" y="12" width="7" height="5" rx="1.5" fill="currentColor"/></svg>
+        <h3>Floats like picture-in-picture</h3>
+        <p>A frameless window you can make as small as you like and pin above everything else. The controls appear only when you hover.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M14.5 8.2a4.6 4.6 0 1 0 1.3 6.6 4 4 0 0 1-1.3-6.6Z" fill="currentColor" stroke="none"/></svg>
+        <h3>Lives in the menu bar</h3>
+        <p>Hover the moon in the menu bar to peek at the camera, even with the window closed. Click the peek to keep it.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15Z"/><path d="M10 21h4"/></svg>
+        <h3>Tells you when something happens</h3>
+        <p>Motion, people and sound, each with a snapshot. Sound is measured on your Mac, even while muted. One notification per camera every five minutes, not twenty.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M12 13.5c-1.6-1.5-3.5-.2-3.5 1.2 0 1.6 2 2.8 3.5 3.8 1.5-1 3.5-2.2 3.5-3.8 0-1.4-1.9-2.7-3.5-1.2Z" fill="currentColor" stroke="none"/></svg>
+        <h3>Stays on your network</h3>
+        <p>ReoBaby talks straight to your cameras. No account, no cloud, no tracking. Passwords stay in your Mac's keychain.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6Z" fill="currentColor"/></svg>
+        <h3>Sharp and quick</h3>
+        <p>Full-resolution H.264 and H.265, decoded by your Mac's hardware, less than half a second behind the room.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4Z"/><path d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+        <h3>Only what you need</h3>
+        <p>Switch cameras, mute and change the volume. Arrow keys switch cameras, <code>M</code> mutes, <code>T</code> pins the window on top.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="two">
+      <div>
+        <h2>Install</h2>
+        <ol class="steps">
+          <li><a href="https://github.com/kilianc/reobaby/releases/latest/download/ReoBaby.zip">Download ReoBaby.zip</a>, unzip it and drag <b>ReoBaby</b> to your Applications folder.</li>
+          <li>Open it. The first time, macOS refuses because ReoBaby isn't notarized by Apple. Click <b>Done</b>, then go to <b>System Settings › Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>.</li>
+          <li>Allow <b>Local Network</b> access so ReoBaby can reach your cameras, and allow notifications if you want alerts.</li>
+          <li>Click the moon in the menu bar, choose <b>Edit Cameras…</b> and add each camera's address. ReoBaby asks for the password the first time it connects.</li>
+        </ol>
+      </div>
+      <div>
+        <h2>Add your cameras</h2>
+        <pre class="code"><code>{
+  "cameras": [
+    { "url": "rtsp://192.168.1.20:554/Preview_01_main",
+      "user": "admin" }
+  ]
+}</code></pre>
+        <p class="note">Turn on RTSP in each camera's settings first. In the Reolink app it's under the camera's network settings (often <b>Advanced › Server Settings</b>, depending on firmware). Camera names and motion alerts also need HTTP or HTTPS turned on there.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="build">
+    <h2>Build it yourself</h2>
+    <p>You need macOS 14 or later and Xcode or its Command Line Tools. There are no other dependencies.</p>
+    <pre class="code"><code>git clone https://github.com/kilianc/reobaby.git
+cd reobaby
+make install</code></pre>
+    <p class="note">This builds <code>ReoBaby.app</code> and copies it to <code>~/Applications</code>. The <a href="https://github.com/kilianc/reobaby#readme">README</a> covers the configuration file, keyboard shortcuts and debugging tools.</p>
+  </section>
+</main>
+
+<footer>
+  Made with love for a little dude by Kilian Ciuffolo · <a href="https://github.com/kilianc/reobaby/blob/main/LICENSE">MIT License</a><br>
+  ReoBaby isn't affiliated with Reolink. The baby here is drawn; the app shows your real cameras.
+</footer>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const stage = $('#stage'), viewport = $('#viewport'), player = $('#player'), peek = $('#peek'), editor = $('#editor');
+  const SW = 1440, SH = 900, MENUBAR = 30;
+
+  // Demo cameras: drawn scenes from tools/demo-scene.swift. `z` is where the z's rise, `thumb` frames the baby.
+  const cams = [
+    { name: 'Crib', src: 'crib.jpg', z: [43, 47], thumb: '29% 44%' },
+    { name: 'Nursery', src: 'room.jpg', z: [35.5, 48], thumb: '26% 46%', size: '420%' },
+  ];
+  const COOLDOWN = 60_000;  // the app waits 5 minutes; the demo waits 1 so you can try again
+  const GATHER = 3000;
+
+  const S = {
+    cam: 0, muted: true, volume: 0.8, pinned: true, open: true, running: true,
+    focus: 'editor', top: 'player', notifyMotion: true, notifySound: true,
+    recent: [], alert: false, frame: { x: 930, y: 600, w: 480, h: 270 },
+  };
+  const bursts = {};
+
+  // ---- Scaling the 1440×900 desktop to the page ----
+  let scale = 1;
+  function fit() {
+    scale = viewport.clientWidth / SW;
+    stage.style.transform = `scale(${scale})`;
+    viewport.style.height = SH * scale + 'px';
+  }
+  new ResizeObserver(fit).observe(viewport);
+  fit();
+  const toStage = e => { const r = stage.getBoundingClientRect(); return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale }; };
+
+  // ---- Icons (drawn after SF Symbols) ----
+  const speaker = level => {
+    const body = '<path d="M2.5 6.2h2.6L9 3v10L5.1 9.8H2.5z" fill="currentColor"/>';
+    if (level === 0) return `<svg viewBox="0 0 16 16">${body}<path d="M11 6l3.5 3.5M14.5 6 11 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+    const waves = ['M10.8 6.2a2.6 2.6 0 0 1 0 3.6', 'M12.4 4.6a5 5 0 0 1 0 6.8', 'M14 3a7.4 7.4 0 0 1 0 10'].slice(0, level);
+    return `<svg viewBox="0 0 16 16">${body}<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">${waves.map(d => `<path d="${d}"/>`).join('')}</g></svg>`;
+  };
+  const pin = on => `<svg viewBox="0 0 16 16"><path d="M5.5 1.8h5l-.8 4.4 2.4 2.4v1.2H3.9V8.6l2.4-2.4z" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 9.8v4.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>${on ? '' : '<path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'}</svg>`;
+  const symbols = {
+    sound: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="1.5" y="6.5" width="1.6" height="3" rx=".8"/><rect x="4.4" y="4" width="1.6" height="8" rx=".8"/><rect x="7.2" y="2" width="1.6" height="12" rx=".8"/><rect x="10" y="4.8" width="1.6" height="6.4" rx=".8"/><rect x="12.9" y="6.8" width="1.6" height="2.4" rx=".8"/></svg>',
+    person: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="2.6" r="1.5" fill="currentColor" stroke="none"/><path d="M8.6 5.2 7.4 9.4 9.6 11.6 10.6 14.6M7.4 9.4 5.8 14.6M8.6 5.2 5.6 6.8 4.6 9M8.6 5.2l2 2.6 2.4.6"/></svg>',
+    motion: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="2.6" r="1.5" fill="currentColor" stroke="none"/><path d="M9.6 5.2 8.4 9.4 10.6 11.6 11.6 14.6M8.4 9.4 6.8 14.6M9.6 5.2 6.6 6.8M9.6 5.2l2 2.6 2.4.6M1.5 6h3M1 9h3M2 12h3"/></svg>',
+  };
+
+  // ---- Clock and the cameras' on-screen display ----
+  const pad = n => String(n).padStart(2, '0');
+  function tick() {
+    const d = new Date();
+    const day = d.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    $('#clock').textContent = `${day}  ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    const osd = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}  ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    $$('.osd.time').forEach(el => el.textContent = osd);
+  }
+  setInterval(tick, 1000); tick();
+
+  // ---- Rendering ----
+  function showFeed(win, cam) {
+    const img = $('.feed', win);
+    if (!img.src.endsWith(cam.src)) img.src = cam.src;
+    $('.osd.name', win).textContent = cam.name;
+    const zz = $('.zz', win);
+    zz.style.left = cam.z[0] + '%'; zz.style.top = cam.z[1] + '%';
+  }
+
+  function render() {
+    const f = S.frame, cam = cams[S.cam];
+    player.classList.toggle('hidden', !(S.open && S.running));
+    Object.assign(player.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px', height: f.h + 'px' });
+    player.classList.toggle('narrow', f.w < 250);
+    showFeed(player, cam); showFeed(peek, cam);
+    $('.camname', player).textContent = cam.name;
+    const level = S.muted || S.volume === 0 ? 0 : S.volume < 0.34 ? 1 : S.volume < 0.67 ? 2 : 3;
+    $('.mute', player).innerHTML = speaker(level);
+    $('.mute', player).title = S.muted ? 'Unmute' : 'Mute';
+    $('.fill', player).style.width = S.volume * 100 + '%';
+    $('.knob', player).style.left = S.volume * 100 + '%';
+    $('.pin', player).innerHTML = pin(S.pinned);
+    // Pinned floats above everything; otherwise the last window you clicked is on top.
+    player.style.zIndex = S.pinned ? 120 : S.top === 'player' ? 60 : 40;
+    editor.style.zIndex = S.top === 'editor' ? 60 : 40;
+    $('#moon').classList.toggle('alert', S.alert);
+    $('#moon').style.display = S.running ? '' : 'none';
+    $('#deskIcon').style.display = S.running ? 'none' : '';
+    renderMenubar();
+    updateAudio();
+  }
+
+  // ---- Menus ----
+  let openMenu = null;
+  function closeMenus() {
+    if (openMenu) { openMenu.el.remove(); openMenu.owner?.classList.remove('open'); openMenu = null; }
+  }
+  function showMenu(items, x, y, owner, alignRight) {
+    closeMenus();
+    const el = document.createElement('div');
+    el.className = 'menu';
+    for (const it of items) {
+      if (it === '-') { el.appendChild(Object.assign(document.createElement('div'), { className: 'sep' })); continue; }
+      const row = document.createElement('div');
+      row.className = 'mi' + (it.action ? '' : ' disabled');
+      row.innerHTML = `<span class="check">${it.checked ? '✓' : ''}</span>${it.icon ? `<span class="ic">${it.icon}</span>` : ''}<span class="label"></span>${it.key ? `<span class="key">${it.key}</span>` : ''}`;
+      $('.label', row).textContent = it.title;
+      if (it.action) row.addEventListener('click', e => { e.stopPropagation(); closeMenus(); it.action(); render(); });
+      el.appendChild(row);
+    }
+    stage.appendChild(el);
+    const w = el.offsetWidth, h = el.offsetHeight;
+    let left = alignRight ? x - w : x;
+    left = Math.max(6, Math.min(SW - w - 6, left));
+    const top = y + h > SH - 6 ? Math.max(MENUBAR + 4, y - h - 30) : y;
+    Object.assign(el.style, { left: left + 'px', top: top + 'px' });
+    el.addEventListener('pointerdown', e => e.stopPropagation());
+    owner?.classList.add('open');
+    openMenu = { el, owner };
+  }
+
+  const camItems = shortcuts => cams.map((c, i) => ({
+    title: c.name, checked: i === S.cam, key: shortcuts ? `⌘${i + 1}` : '', action: () => openCamera(i),
+  }));
+  const controlsItems = () => [
+    { title: 'Mute', key: 'M', checked: S.muted, action: toggleMute },
+    { title: 'Volume Up', key: '↑', action: () => setVolume(S.volume + 0.1) },
+    { title: 'Volume Down', key: '↓', action: () => setVolume(S.volume - 0.1) },
+    { title: 'Float on Top', key: 'T', checked: S.pinned, action: togglePin },
+    '-',
+    { title: 'Next Camera', key: ']', action: () => switchCamera(1) },
+    { title: 'Previous Camera', key: '[', action: () => switchCamera(-1) },
+    '-', ...camItems(true),
+  ];
+  const appMenus = {
+    player: [
+      { label: 'ReoBaby', bold: true, items: () => [
+        { title: 'About ReoBaby', action: () => window.open('https://github.com/kilianc/reobaby', '_blank') },
+        '-', { title: 'Edit Cameras…', key: '⌘,', action: editCameras }, '-',
+        { title: 'Hide ReoBaby', key: '⌘H', action: () => { S.open = false; S.focus = 'desktop'; } },
+        { title: 'Quit ReoBaby', key: '⌘Q', action: quit },
+      ] },
+      { label: 'Controls', items: controlsItems },
+      { label: 'Window', items: () => [
+        { title: 'Minimize', key: '⌘M', action: closePlayer },
+        { title: 'Zoom', action: zoom },
+        { title: 'Enter Full Screen', key: '⌃⌘F', action: zoom },
+        '-', { title: 'Close', key: '⌘W', action: closePlayer },
+      ] },
+    ],
+    editor: ['Editor', 'File', 'Edit', 'View', 'Window', 'Help'],
+    desktop: ['Finder', 'File', 'Edit', 'View', 'Go', 'Window', 'Help'],
+  };
+  function renderMenubar() {
+    const left = $('#mbLeft'), key = S.focus;
+    if (left.dataset.app === key) return;
+    left.dataset.app = key; left.innerHTML = '';
+    appMenus[key].forEach((m, i) => {
+      const el = document.createElement('div');
+      el.className = 'mb-item' + (i === 0 ? ' bold' : '');
+      el.textContent = typeof m === 'string' ? m : m.label;
+      if (m.items) {
+        const open = () => { const r = el.getBoundingClientRect(), s = stage.getBoundingClientRect(); showMenu(m.items(), (r.left - s.left) / scale, MENUBAR + 1, el); };
+        el.addEventListener('pointerdown', e => { e.stopPropagation(); openMenu?.owner === el ? closeMenus() : open(); });
+        el.addEventListener('pointerenter', () => { if (openMenu && openMenu.owner !== el && openMenu.owner?.classList.contains('mb-item')) open(); });
+      }
+      left.appendChild(el);
+    });
+  }
+
+  function statusItems() {
+    const items = [];
+    if (S.recent.length) {
+      const rtf = new Intl.RelativeTimeFormat('en', { style: 'short', numeric: 'always' });
+      for (const r of S.recent) {
+        const secs = Math.round((r.date - Date.now()) / 1000);
+        const when = Math.abs(secs) < 60 ? rtf.format(secs, 'second') : rtf.format(Math.round(secs / 60), 'minute');
+        items.push({ title: `${r.text} · ${cams[r.cam].name} · ${when}`, icon: symbols[r.symbol], action: () => openCamera(r.cam) });
+      }
+      items.push({ title: 'Clear', action: () => { S.recent = []; } }, '-');
+    }
+    items.push(...camItems(false).map(it => ({ ...it, checked: false })), '-',
+      { title: 'Show Player', action: () => openCamera(S.cam) },
+      { title: 'Float on Top', checked: S.pinned, action: togglePin },
+      { title: 'Mute', checked: S.muted, action: toggleMute },
+      '-',
+      { title: 'Notify on Motion', checked: S.notifyMotion, action: () => { S.notifyMotion = !S.notifyMotion; } },
+      { title: 'Notify on Sound', checked: S.notifySound, action: () => { S.notifySound = !S.notifySound; } },
+      '-',
+      { title: 'Edit Cameras…', action: editCameras },
+      { title: 'Quit ReoBaby', action: quit });
+    return items;
+  }
+
+  // ---- Actions ----
+  function connect() {
+    player.classList.add('connecting');
+    clearTimeout(connect.t);
+    connect.t = setTimeout(() => player.classList.remove('connecting'), 650);
+  }
+  function openCamera(i) {
+    const wasHidden = !S.open || !S.running;
+    if (i !== S.cam || wasHidden) connect();
+    S.cam = i; S.open = true; S.running = true; S.focus = 'player'; S.top = 'player';
+  }
+  function switchCamera(step) { openCamera((S.cam + step + cams.length) % cams.length); }
+  function toggleMute() { S.muted = !S.muted; if (!S.muted) startAudio(); }
+  function setVolume(v) { S.volume = Math.round(Math.max(0, Math.min(1, v)) * 100) / 100; if (S.volume > 0 && S.muted) { S.muted = false; startAudio(); } }
+  function togglePin() { S.pinned = !S.pinned; done('pin-toggle'); }
+  function closePlayer() { S.open = false; S.focus = 'desktop'; }
+  function quit() { S.running = false; S.open = false; S.focus = 'desktop'; closeMenus(); hidePeek(true); }
+  function zoom() {
+    const f = S.frame, big = f.w < 900;
+    const w = big ? 960 : 480, h = w * 9 / 16;
+    S.frame = big ? { x: (SW - w) / 2, y: MENUBAR + (SH - MENUBAR - h) / 2, w, h } : { x: 930, y: 600, w, h };
+  }
+  function editCameras() {
+    log('The real app opens <code>~/.config/reobaby/cameras.json</code> in your text editor here.', true);
+  }
+
+  // ---- Windows: focus, dragging, resizing ----
+  stage.addEventListener('pointerdown', e => {
+    closeMenus();
+    if (e.target.closest('#player')) { S.focus = 'player'; S.top = 'player'; }
+    else if (e.target.closest('#editor')) { S.focus = 'editor'; S.top = 'editor'; if (!S.pinned && S.open) done('pin'); }
+    else if (!e.target.closest('.menubar, .notif, .peek, .menu')) { S.focus = 'desktop'; $('#deskIcon').classList.remove('sel'); }
+    render();
+  });
+
+  function drag(el, start, move) {
+    el.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const ctx = start(e);
+      if (!ctx) return;
+      const p0 = toStage(e);
+      el.setPointerCapture(e.pointerId);
+      const onMove = ev => { const p = toStage(ev); move(ctx, p.x - p0.x, p.y - p0.y); render(); };
+      const end = () => { el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', end); el.removeEventListener('pointercancel', end); };
+      el.addEventListener('pointermove', onMove); el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+    });
+  }
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  // The whole video is a drag handle, like the app (movable by its background).
+  drag(player, e => e.target.closest('.hud, .lights, .corner') ? null : { ...S.frame }, (f0, dx, dy) => {
+    S.frame.x = clamp(f0.x + dx, 40 - f0.w, SW - 40);
+    S.frame.y = clamp(f0.y + dy, MENUBAR, SH - 30);
+    if (Math.hypot(dx, dy) > 12) done('move');
+  });
+  $$('.corner', player).forEach(c => drag(c, () => ({ ...S.frame, c: c.dataset.c }), (f0, dx, dy) => {
+    const east = f0.c.includes('e'), south = f0.c.includes('s');
+    const wx = f0.w + (east ? dx : -dx), wy = (f0.h + (south ? dy : -dy)) * 16 / 9;
+    const w = clamp(Math.abs(wx - f0.w) >= Math.abs(wy - f0.w) ? wx : wy, 192, 1100), h = w * 9 / 16;
+    S.frame = { x: east ? f0.x : f0.x + f0.w - w, y: south ? f0.y : Math.max(MENUBAR, f0.y + f0.h - h), w, h };
+    done('move');
+  }));
+  let editorPos = { x: 96, y: 96 };
+  drag($('#editorBar'), e => e.target.closest('.lights') ? null : { ...editorPos }, (p0, dx, dy) => {
+    editorPos = { x: clamp(p0.x + dx, -600, SW - 100), y: clamp(p0.y + dy, MENUBAR, SH - 40) };
+    Object.assign(editor.style, { left: editorPos.x + 'px', top: editorPos.y + 'px' });
+  });
+
+  const lights = $$('.lights b', player);
+  lights[0].addEventListener('click', e => { e.stopPropagation(); closePlayer(); render(); });
+  lights[1].addEventListener('click', e => { e.stopPropagation(); closePlayer(); render(); });
+  lights[2].addEventListener('click', e => { e.stopPropagation(); zoom(); render(); });
+  player.addEventListener('pointerenter', () => done('hover'));
+  // Touch screens have no hover: a tap shows the controls for a few seconds.
+  let hudTimer;
+  player.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return;
+    player.classList.add('hud-on'); done('hover');
+    clearTimeout(hudTimer); hudTimer = setTimeout(() => player.classList.remove('hud-on'), 3500);
+  });
+  player.addEventListener('dblclick', e => { if (!e.target.closest('.hud')) { zoom(); render(); } });
+  player.addEventListener('contextmenu', e => { e.preventDefault(); const p = toStage(e); showMenu(controlsItems(), p.x, p.y); });
+
+  // HUD
+  $('.cam', player).addEventListener('click', e => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect(), s = stage.getBoundingClientRect();
+    showMenu(camItems(false), (r.left - s.left) / scale, (r.bottom - s.top) / scale + 4);
+  });
+  $('.mute', player).addEventListener('click', e => { e.stopPropagation(); toggleMute(); render(); });
+  $('.pin', player).addEventListener('click', e => { e.stopPropagation(); togglePin(); render(); });
+  const slider = $('.slider', player);
+  drag(slider, e => { const r = slider.getBoundingClientRect(); setVolume((e.clientX - r.left) / r.width); render(); return { v: S.volume }; },
+    (ctx, dx) => setVolume(ctx.v + dx / 64));
+
+  // ---- Menu bar moon: click for the menu, hover to peek ----
+  const moon = $('#moon');
+  moon.addEventListener('pointerdown', e => {
+    e.stopPropagation(); hidePeek(true);
+    if (openMenu?.owner === moon) return closeMenus();
+    const r = moon.getBoundingClientRect(), s = stage.getBoundingClientRect();
+    S.alert = false;
+    showMenu(statusItems(), (r.left - s.left) / scale, MENUBAR + 1, moon);
+    done('menu'); render();
+  });
+  let peekTimer;
+  // The app peeks when the player isn't already floating on screen.
+  const playerOnTop = () => S.open && S.running && (S.pinned || S.top === 'player');
+  function showPeek() {
+    clearTimeout(peekTimer);
+    if (openMenu || playerOnTop() || !S.running) return;
+    const r = moon.getBoundingClientRect(), s = stage.getBoundingClientRect();
+    const right = (r.right - s.left) / scale + 20;
+    Object.assign(peek.style, { left: Math.min(SW - 368, right - 360) + 'px', top: MENUBAR + 8 + 'px' });
+    peek.classList.remove('hidden');
+    done('peek');
+  }
+  function hidePeek(now) {
+    clearTimeout(peekTimer);
+    if (now) peek.classList.add('hidden');
+    else peekTimer = setTimeout(() => peek.classList.add('hidden'), 250);
+  }
+  moon.addEventListener('pointerenter', showPeek);
+  moon.addEventListener('pointerleave', () => hidePeek());
+  peek.addEventListener('pointerenter', () => clearTimeout(peekTimer));
+  peek.addEventListener('pointerleave', () => hidePeek());
+  peek.addEventListener('click', () => {
+    // Clicking the peek keeps it: it becomes the player, right where it is.
+    S.frame = { x: parseFloat(peek.style.left), y: parseFloat(peek.style.top), w: 360, h: 202.5 };
+    hidePeek(true); openCamera(S.cam); render();
+  });
+
+  // Desktop icon relaunches after Quit.
+  const desk = $('#deskIcon');
+  desk.addEventListener('click', () => desk.classList.add('sel'));
+  desk.addEventListener('dblclick', () => { desk.classList.remove('sel'); openCamera(S.cam); render(); });
+
+  // ---- Keyboard, while the player is focused ----
+  let active = false;
+  document.addEventListener('pointerdown', e => { active = viewport.contains(e.target); }, true);
+  document.addEventListener('keydown', e => {
+    if (!active || S.focus !== 'player' || !S.open) return;
+    const k = e.key, handled = { m: toggleMute, M: toggleMute, t: togglePin, T: togglePin,
+      ArrowRight: () => switchCamera(1), ArrowLeft: () => switchCamera(-1), Tab: () => switchCamera(e.shiftKey ? -1 : 1),
+      ']': () => switchCamera(1), '[': () => switchCamera(-1),
+      ArrowUp: () => setVolume(S.volume + 0.1), ArrowDown: () => setVolume(S.volume - 0.1) }[k]
+      || (/^[1-9]$/.test(k) && +k <= cams.length ? () => openCamera(+k - 1) : null);
+    if (handled) { e.preventDefault(); handled(); render(); }
+  });
+
+  // ---- Events, the 3-second gather and the per-camera cooldown, as in Alerts.swift ----
+  const logEl = $('#log');
+  function log(html, quiet) {
+    const li = document.createElement('li');
+    const d = new Date();
+    li.innerHTML = `<time>${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}</time><span class="${quiet ? 'quiet' : ''}">${html}</span>`;
+    logEl.prepend(li);
+  }
+  function event(cam, kind, rank, text, symbol) {
+    const name = cams[cam].name, now = Date.now(), b = bursts[cam];
+    if (!(kind === 'sound' ? S.notifySound : S.notifyMotion)) return log(`${name}: ${text.toLowerCase()}. Notifications for ${kind} are off.`, true);
+    if (b && now - b.start < COOLDOWN) {
+      if (now - b.start < GATHER && rank > b.rank) {
+        Object.assign(b, { text, symbol, rank });
+        const r = S.recent.find(r => r.cam === cam && r.date === b.start);
+        if (r) Object.assign(r, { text, symbol });
+        return log(`${name}: ${text.toLowerCase()}. The notification will say this instead.`);
+      }
+      const left = Math.ceil((COOLDOWN - (now - b.start)) / 1000);
+      return log(`${name}: ${text.toLowerCase()}. Quiet: this camera already notified (${left} s left here, 5 min in the app).`, true);
+    }
+    bursts[cam] = { start: now, text, symbol, rank };
+    S.recent.unshift({ cam, text, symbol, date: now });
+    S.recent = S.recent.slice(0, 5);
+    S.alert = true;
+    log(`${name}: ${text.toLowerCase()}. Notifying in 3 s…`);
+    render();
+    setTimeout(() => { const cur = bursts[cam]; if (cur && cur.start === now) notify(cam, cur.text); }, GATHER);
+  }
+
+  let banner;
+  function notify(cam, text) {
+    banner?.remove();
+    const el = banner = document.createElement('div');
+    el.className = 'notif out';
+    const c = cams[cam];
+    el.innerHTML = `<span class="x">✕</span><img src="icon.png" alt=""><div><div class="t"></div><div class="b"></div></div><div class="thumb"></div>`;
+    $('.t', el).innerHTML = `<span></span><small>now</small>`;
+    $('.t span', el).textContent = c.name;
+    $('.b', el).textContent = text;
+    Object.assign($('.thumb', el).style, { backgroundImage: `url(${c.src})`, backgroundPosition: c.thumb, backgroundSize: c.size || '330%' });
+    stage.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('out')));
+    const dismiss = () => { el.classList.add('out'); setTimeout(() => el.remove(), 500); };
+    let timer = setTimeout(dismiss, 6000);
+    el.addEventListener('pointerenter', () => clearTimeout(timer));
+    el.addEventListener('pointerleave', () => { timer = setTimeout(dismiss, 2500); });
+    $('.x', el).addEventListener('click', e => { e.stopPropagation(); dismiss(); });
+    el.addEventListener('click', () => { dismiss(); openCamera(cam); done('notify'); render(); });
+    chime();
+  }
+
+  function coo() {
+    // The baby makes a little noise on the crib camera.
+    $$('.zz').forEach(z => { z.classList.add('coo'); $$('i', z).forEach(i => i.textContent = '♪'); });
+    setTimeout(() => $$('.zz').forEach(z => { z.classList.remove('coo'); $$('i', z).forEach(i => i.textContent = 'z'); }), 4500);
+    event(0, 'sound', 1, 'Sound detected', 'sound');
+  }
+  function walkIn() {
+    event(1, 'motion', 1, 'Motion detected', 'motion');
+    setTimeout(() => event(1, 'motion', 4, 'Person detected', 'person'), 1300);
+    setTimeout(() => event(1, 'motion', 1, 'Motion detected', 'motion'), 5000);
+    setTimeout(() => event(1, 'sound', 1, 'Sound detected', 'sound'), 7500);
+  }
+  $('#coo').addEventListener('click', () => { startAudio(); coo(); });
+  $('#walk').addEventListener('click', () => { startAudio(); walkIn(); });
+
+  // The first coo happens on its own, a few seconds after the desktop scrolls into view.
+  new IntersectionObserver((entries, obs) => {
+    if (entries.some(e => e.isIntersecting)) { obs.disconnect(); setTimeout(() => { if (!S.recent.length) coo(); }, 5000); }
+  }, { threshold: 0.5 }).observe(viewport);
+
+  // ---- Sound: the nursery's white-noise machine while unmuted, and a soft chime for notifications ----
+  let ac, noise;
+  function startAudio() {
+    if (ac) return ac.resume?.();
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), data = buf.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < data.length; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; data[i] = last * 3.5; }
+      const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+      noise = ac.createGain(); noise.gain.value = 0;
+      src.connect(noise).connect(ac.destination); src.start();
+      updateAudio();
+    } catch { ac = null; }
+  }
+  function updateAudio() {
+    if (!ac || !noise) return;
+    const on = !S.muted && S.open && S.running;
+    noise.gain.setTargetAtTime(on ? S.volume * 0.35 : 0, ac.currentTime, 0.15);
+  }
+  function chime() {
+    if (!ac) return;
+    const t = ac.currentTime;
+    [880, 1318.5].forEach((f, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t + i * 0.12); g.gain.linearRampToValueAtTime(0.08, t + i * 0.12 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.12 + 0.6);
+      o.connect(g).connect(ac.destination); o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.7);
+    });
+  }
+
+  // ---- The checklist ----
+  function done(step) {
+    if (step === 'pin-toggle') return;
+    const li = $(`.todo li[data-step="${step}"]`);
+    li?.classList.add('done');
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
