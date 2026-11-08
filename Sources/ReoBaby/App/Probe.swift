@@ -66,6 +66,111 @@ enum Probe {
         return 0
     }
 
+    /// `ReoBaby --record <camera> <seconds> <file.wav>`: the camera's sound as it arrives, decoded,
+    /// to tune the sound processing against (`--process`).
+    static func record(target: String, seconds: Double, to path: String) -> Int32 {
+        guard let (camera, endpoint) = resolve(target) else {
+            print("No camera or rtsp:// URL matching “\(target)”")
+            return 2
+        }
+        print("Recording \(Int(seconds))s of sound from \(camera.displayName) to \(path)")
+        let queue = DispatchQueue(label: "reobaby.record")
+        let decoder = AudioDecoder()
+        var audio: AudioDepacketizer?
+        var file: AVAudioFile?
+        var frames = 0
+        let client = RTSPClient(endpoint: endpoint, queue: queue, wantsVideo: false)
+        client.onTracks = { tracks in
+            audio = tracks.first.flatMap { makeAudioDepacketizer($0.media) }
+            print("track: \(audio?.label ?? "none ReoBaby can decode")")
+        }
+        client.onRTP = { _, packet in
+            guard let sample = audio?.push(packet, pts: { _ in .zero }),
+                  let pcm = decoder.decode(sample), !pcm.samples.isEmpty else { return }
+            if file == nil {
+                let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: pcm.sampleRate,
+                                               AVNumberOfChannelsKey: pcm.channels, AVLinearPCMBitDepthKey: 32,
+                                               AVLinearPCMIsFloatKey: true]
+                file = try? AVAudioFile(forWriting: URL(fileURLWithPath: path), settings: settings,
+                                        commonFormat: .pcmFormatFloat32, interleaved: true)
+            }
+            guard let file, let buffer = AVAudioPCMBuffer(pcm, format: file.processingFormat) else { return }
+            try? file.write(from: buffer)
+            frames += pcm.samples.count / pcm.channels
+        }
+        client.onFailure = { print("failed: \($0)") }
+        client.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        client.stop()
+        queue.sync { file = nil }
+        print("wrote \(frames) frames")
+        return frames > 0 ? 0 : 1
+    }
+
+    /// `ReoBaby --process <in.wav> [out.wav]`: runs a recording through the sound processing and
+    /// sound detection, compares detection with and without noise reduction, and writes what you
+    /// would hear.
+    static func process(_ inPath: String, to outPath: String?) -> Int32 {
+        guard let file = try? AVAudioFile(forReading: URL(fileURLWithPath: inPath), commonFormat: .pcmFormatFloat32,
+                                          interleaved: true),
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 1024) else {
+            print("Can't read \(inPath)")
+            return 2
+        }
+        let rate = file.processingFormat.sampleRate
+        let channels = Int(file.processingFormat.channelCount)
+        var writer: AVAudioFile?
+        if let outPath {
+            writer = try? AVAudioFile(forWriting: URL(fileURLWithPath: outPath), settings: file.fileFormat.settings,
+                                      commonFormat: .pcmFormatFloat32, interleaved: true)
+        }
+        print(String(format: "%@: %.1fs, %.0f Hz, %d ch", inPath, Double(file.length) / rate, rate, channels))
+        print(SoundSettings.summary)
+
+        let processor = AudioProcessor()
+        let meter = AudioLevelMeter()
+        var plain = SoundDetector(), cleaned = SoundDetector()
+        var plainEvents: [Double] = [], cleanedEvents: [Double] = []
+        var heard = LevelLog(), clean = LevelLog(), processed = LevelLog()
+        var peak: Float = 0
+        var position = 0
+        func detect(_ detector: inout SoundDetector, _ events: inout [Double], _ level: Float, _ duration: Double, _ t: Double) {
+            // As the monitor does: at most one event every 5 s.
+            if detector.feed(level: level, duration: duration, at: t), t - (events.last ?? -10) > 5 { events.append(t) }
+        }
+        while (try? file.read(into: buffer, frameCount: 1024)) != nil, buffer.frameLength > 0 {
+            let frames = Int(buffer.frameLength)
+            let pcm = AudioDecoder.PCM(samples: Array(UnsafeBufferPointer(start: buffer.floatChannelData![0],
+                                                                          count: frames * channels)),
+                                       channels: channels, sampleRate: rate)
+            let t = Double(position) / rate
+            let duration = Double(frames) / rate
+            position += frames
+
+            let level = AudioLevelMeter.decibels(pcm.meanSquare)
+            heard.add(level)
+            detect(&plain, &plainEvents, level, duration, t)
+            if let level = meter.level(of: pcm) {
+                clean.add(level)
+                detect(&cleaned, &cleanedEvents, level, duration, t)
+            }
+            let out = processor.process(pcm)
+            guard !out.samples.isEmpty else { continue }
+            processed.add(out)
+            peak = max(peak, out.samples.map(abs).max() ?? 0)
+            if let writer, let b = AVAudioPCMBuffer(out, format: writer.processingFormat) { try? writer.write(from: b) }
+        }
+        func times(_ events: [Double]) -> String {
+            events.isEmpty ? "none" : events.map { String(format: "%.1fs", $0) }.joined(separator: " ")
+        }
+        print("noise reduction: " + LevelLog.compare(heard, clean))
+        print("as you hear it:  " + LevelLog.compare(heard, processed)
+              + String(format: ", peaks %.1f dBFS", AudioLevelMeter.decibels(peak * peak)))
+        print("sound events without noise reduction: \(times(plainEvents))")
+        print("sound events with noise reduction:    \(times(cleanedEvents))")
+        return 0
+    }
+
     static func run(target: String, seconds: Double) -> Int32 {
         guard let (camera, endpoint) = resolve(target) else {
             print("No camera or rtsp:// URL matching “\(target)” (config: \(ConfigStore.file.path))")
@@ -95,6 +200,7 @@ enum Probe {
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
 
         let s = sink.stats()
+        print(SoundSettings.summary)
         let fps = Double(s.frames) / max(seconds, 1)
         print("""
         video: \(s.frames) frames (\(s.keyframes) key, ~\(String(format: "%.1f", fps)) fps), decoded \(s.decoded), decode errors \(s.errors)\(s.lastError == 0 ? "" : " (last OSStatus \(s.lastError))")
@@ -120,13 +226,13 @@ enum Probe {
 private final class ProbeSink: MediaSink {
     struct Stats {
         var frames = 0, keyframes = 0, decoded = 0, errors = 0, audioBuffers = 0
-        var inSquares: Double = 0, inSamples = 0, outSquares: Double = 0, outSamples = 0
+        var heard = LevelLog(), processed = LevelLog()
         var outPeak: Float = 0
         var lastError: OSStatus = 0
     }
 
     let audio = AVSampleBufferAudioRenderer()
-    private let booster = AudioBooster()
+    private let processor = AudioProcessor()
     private let inDecoder = AudioDecoder()
     private let outDecoder = AudioDecoder()
     private let synchronizer = AVSampleBufferRenderSynchronizer()
@@ -155,7 +261,7 @@ private final class ProbeSink: MediaSink {
     func reset(clearImage: Bool) {
         synchronizer.rate = 0
         audio.flush()
-        booster.reset()
+        processor.reset()
         inDecoder.reset()
     }
 
@@ -193,15 +299,15 @@ private final class ProbeSink: MediaSink {
 
     func enqueueAudio(_ sample: CMSampleBuffer) {
         update { $0.audioBuffers += 1 }
-        let louder = booster.process(sample)
-        if let louder { audio.enqueue(louder) }
-        // Levels before and after the boost, as you would hear them.
-        if let before = inDecoder.decode(sample), let after = louder.flatMap(outDecoder.decode) {
+        let processed = processor.process(sample)
+        if let processed { audio.enqueue(processed) }
+        // Levels before and after processing, as you would hear them.
+        if let before = inDecoder.decode(sample), !before.samples.isEmpty {
+            update { $0.heard.add(before) }
+        }
+        if let after = processed.flatMap(outDecoder.decode), !after.samples.isEmpty {
             update {
-                $0.inSquares += Double(before.meanSquare) * Double(before.samples.count)
-                $0.inSamples += before.samples.count
-                $0.outSquares += Double(after.meanSquare) * Double(after.samples.count)
-                $0.outSamples += after.samples.count
+                $0.processed.add(after)
                 $0.outPeak = max($0.outPeak, after.samples.map(abs).max() ?? 0)
             }
         }
@@ -213,10 +319,40 @@ private final class ProbeSink: MediaSink {
 
 private extension ProbeSink.Stats {
     var levels: String {
-        guard inSamples > 0, outSamples > 0 else { return "no levels" }
-        func db(_ squares: Double, _ count: Int) -> Float { AudioLevelMeter.decibels(Float(squares / Double(count))) }
-        return String(format: "%.1f dB from the camera, %.1f dB after the %.0f dB boost, peaks %.1f dBFS",
-                      db(inSquares, inSamples), db(outSquares, outSamples), AudioBooster.boostDB,
-                      AudioLevelMeter.decibels(outPeak * outPeak))
+        LevelLog.compare(heard, processed) + String(format: ", peaks %.1f dBFS", AudioLevelMeter.decibels(outPeak * outPeak))
+    }
+}
+
+/// Levels of successive buffers, in dBFS.
+struct LevelLog {
+    private(set) var values: [Float] = []
+
+    mutating func add(_ pcm: AudioDecoder.PCM) { values.append(AudioLevelMeter.decibels(pcm.meanSquare)) }
+    mutating func add(_ level: Float) { values.append(level) }
+
+    /// The level that this fraction of buffers stays under.
+    func percentile(_ p: Double) -> Float {
+        guard !values.isEmpty else { return -100 }
+        let sorted = values.sorted()
+        return sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))]
+    }
+
+    /// "background -52.0 → -40.1 dB, …": the quiet 10%, the median, the loudest 10% and 2%.
+    static func compare(_ before: LevelLog, _ after: LevelLog) -> String {
+        guard !before.values.isEmpty, !after.values.isEmpty else { return "no levels" }
+        return [("background", 0.1), ("median", 0.5), ("busy", 0.9), ("loud", 0.98)].map { name, p in
+            String(format: "%@ %.1f → %.1f dB", name, before.percentile(p), after.percentile(p))
+        }.joined(separator: ", ")
+    }
+}
+
+extension AVAudioPCMBuffer {
+    /// An interleaved float buffer holding these samples.
+    convenience init?(_ pcm: AudioDecoder.PCM, format: AVAudioFormat) {
+        let frames = pcm.samples.count / pcm.channels
+        self.init(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))
+        frameLength = AVAudioFrameCount(frames)
+        guard let data = floatChannelData else { return nil }
+        pcm.samples.withUnsafeBufferPointer { data[0].update(from: $0.baseAddress!, count: frames * pcm.channels) }
     }
 }

@@ -3,6 +3,16 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
+## Unreleased
+
+- **Clearer, louder sound.** Noise reduction turns steady background noise (a
+  fan, a white-noise machine, microphone hiss) down by 24 dB, and a compressor
+  raises quiet sounds by 40 dB and loud ones by less. A whimper is now easy to
+  hear and a cry still doesn't distort. `noiseReduction` and `audioBoost`
+  change them; see [Sound](README.md#sound).
+- **Sound notifications hear through background noise.** Sound is measured
+  after noise reduction, so a cry over a white-noise machine is noticed.
+
 ## 1.4.1 · 2026-11-07
 
 - **About ReoBaby** is in the moon's menu too, so it's there without a Dock

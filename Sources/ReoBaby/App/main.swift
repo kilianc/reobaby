@@ -13,6 +13,16 @@ if let i = arguments.firstIndex(of: "--monitor") {
     exit(Probe.monitor(target: target, seconds: seconds))
 }
 
+if let i = arguments.firstIndex(of: "--record"), i + 3 < arguments.count {
+    exit(Probe.record(target: arguments[i + 1], seconds: Double(arguments[i + 2]) ?? 60, to: arguments[i + 3]))
+}
+
+if let i = arguments.firstIndex(of: "--process"), i + 1 < arguments.count {
+    // A setting tried as an argument (`-audioBoost 30`) is not the output file.
+    let output = i + 2 < arguments.count && !arguments[i + 2].hasPrefix("-") ? arguments[i + 2] : nil
+    exit(Probe.process(arguments[i + 1], to: output))
+}
+
 if let i = arguments.firstIndex(of: "--install-update") {
     exit(Updater.finishInstall(arguments: Array(arguments[(i + 1)...])))
 }

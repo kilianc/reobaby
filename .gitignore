@@ -2,3 +2,6 @@
 build/
 .DS_Store
 .claude/settings.local.json
+# Camera sound from --record and --process: never commit it.
+*.wav
+*.caf

@@ -33,7 +33,7 @@ app on my Mac, so I can keep an eye on my little dude while I work.
   opens it again on the last camera you watched.
 - **Notifications** for motion (including person, vehicle and animal on cameras
   with AI detection) and for sound, each with a snapshot. Sound is measured on
-  your Mac from each camera's audio, even while muted.
+  your Mac from each camera's audio, after noise reduction, even while muted.
 - **Finds your cameras.** The Cameras window looks for Reolink cameras on your
   network, checks the login and adds them. No IP addresses to look up.
 - **Local only.** ReoBaby connects only to your cameras, and to GitHub to check
@@ -125,14 +125,31 @@ defaults write com.kilianciuffolo.cam notifyCooldown -float 600
 
 ## Sound
 
-Reolink microphones are quiet, so ReoBaby plays camera sound 24 dB louder
-(about 16 times) and limits the peaks, so a sudden cry doesn't distort. The
-volume slider works on top of that. To change the boost, in dB (0 turns it
-off), then switch cameras to hear the difference:
+Reolink microphones are quiet, and rooms have steady background noise: a fan, a
+white-noise machine, the microphone's own hiss. ReoBaby cleans up camera sound
+before you hear it:
+
+1. **Noise reduction** learns the steady background from the last few seconds
+   and turns it down by 24 dB. Sounds that come and go, like a cry, a cough or a
+   voice, pass through. A sound that never changes, like a constant tone, fades
+   into the background after a few seconds.
+2. **Compression** raises quiet sounds by 40 dB and loud ones by less, so a
+   whimper is easy to hear and a scream isn't deafening.
+3. **A limiter** holds the peaks under full scale, so nothing distorts.
+
+Sound notifications use the same noise reduction, so a cry stands out even over
+a white-noise machine. The volume slider works on top of all this.
+
+To change a step, in dB (0 turns it off), then quit and reopen ReoBaby:
 
 ```bash
+defaults write com.kilianciuffolo.cam noiseReduction -float 30
 defaults write com.kilianciuffolo.cam audioBoost -float 30
 ```
+
+`compressorThreshold` (dBFS, default -50) is where compression starts, and
+`compressorRatio` (default 2) is how many dB louder a sound must get to come
+out 1 dB louder.
 
 ## Keyboard
 
@@ -179,6 +196,21 @@ To watch live sound levels and detection events for a camera:
 
 ```bash
 build/ReoBaby.app/Contents/MacOS/ReoBaby --monitor "Nursery" 30
+```
+
+To tune the sound processing against a real room, record a camera's sound, then
+run the recording through the processing. `--process` prints levels before and
+after, lists the sound events it would notify with and without noise reduction,
+and writes what you would hear. Settings go after the files, as `-audioBoost 30`,
+without changing yours. WAV files are git-ignored, so recordings stay out of the
+repo:
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --record "Nursery" 60 build/room.wav
+```
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --process build/room.wav build/room-processed.wav
 ```
 
 `REOBABY_UPDATE_URL` points the updater at another release feed (a JSON file

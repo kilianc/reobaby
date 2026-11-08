@@ -1,14 +1,28 @@
 import AVFoundation
 import CoreMedia
 
-/// Measures how loud camera audio is.
+/// Measures how loud camera audio is, after the same noise reduction as listening, so a sound
+/// stands out against what's left of the background rather than against a fan or white noise.
 final class AudioLevelMeter {
     private let decoder = AudioDecoder()
+    private let cleaner = NoiseCleaner()
+    private let reducesNoise: Bool
 
-    /// RMS level of the buffer in dBFS (0 = full scale, silence ≈ -100), or nil if undecodable.
+    init() {
+        let reduction = Float(max(SoundSettings.noiseReductionDB, 0))
+        reducesNoise = reduction > 0
+        cleaner.reset(reductionDB: reduction)
+    }
+
+    /// RMS level of the buffer in dBFS (0 = full scale, silence ≈ -100), or nil if undecodable
+    /// or still filling the noise reduction.
     func level(of sample: CMSampleBuffer) -> Float? {
-        guard let pcm = decoder.decode(sample), !pcm.samples.isEmpty else { return nil }
-        return Self.decibels(pcm.meanSquare)
+        decoder.decode(sample).flatMap(level)
+    }
+
+    func level(of pcm: AudioDecoder.PCM) -> Float? {
+        let cleaned = reducesNoise ? cleaner.clean(pcm) : pcm
+        return cleaned.samples.isEmpty ? nil : Self.decibels(cleaned.meanSquare)
     }
 
     static func decibels(_ meanSquare: Float) -> Float {

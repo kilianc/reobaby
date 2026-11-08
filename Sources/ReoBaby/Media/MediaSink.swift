@@ -21,7 +21,7 @@ final class RendererSink: MediaSink {
     let video: AVSampleBufferVideoRenderer
     let audio = AVSampleBufferAudioRenderer()
     let synchronizer = AVSampleBufferRenderSynchronizer()
-    private let booster = AudioBooster()
+    private let processor = AudioProcessor()
 
     init(layer: AVSampleBufferDisplayLayer) {
         video = layer.sampleBufferRenderer
@@ -43,7 +43,7 @@ final class RendererSink: MediaSink {
         synchronizer.rate = 0
         video.flush(removingDisplayedImage: clearImage, completionHandler: nil)
         audio.flush()
-        booster.reset()
+        processor.reset()
     }
 
     func start(latency: Double) {
@@ -56,7 +56,7 @@ final class RendererSink: MediaSink {
     }
 
     func enqueueAudio(_ sample: CMSampleBuffer) {
-        if let louder = booster.process(sample) { audio.enqueue(louder) }
+        if let processed = processor.process(sample) { audio.enqueue(processed) }
     }
 
     var videoFailed: Bool {
