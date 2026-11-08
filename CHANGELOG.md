@@ -3,7 +3,7 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
-## Unreleased
+## 1.4.0 · 2026-11-07
 
 - **Louder camera sound.** Reolink microphones are quiet, so ReoBaby now plays
   camera sound 24 dB louder, through a limiter so a sudden cry doesn't distort.
