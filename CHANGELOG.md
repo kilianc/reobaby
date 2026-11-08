@@ -3,7 +3,7 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
-## Unreleased
+## 1.4.1 · 2026-11-07
 
 - **About ReoBaby** is in the moon's menu too, so it's there without a Dock
   icon. The panel now says what ReoBaby is, with links to GitHub and this
