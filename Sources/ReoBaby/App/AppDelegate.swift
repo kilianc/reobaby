@@ -555,6 +555,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
+    /// The standard About panel, with what ReoBaby is and where it lives. It's in the moon's menu
+    /// too, since there's no app menu without a Dock icon.
+    @objc func showAbout(_ sender: Any?) {
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: Self.aboutCredits()])
+    }
+
+    private static func aboutCredits() -> NSAttributedString {
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        let base: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: centered,
+        ]
+        let credits = NSMutableAttributedString(string: "A tiny window for your Reolink cameras.\nAll local, no cloud.\n\n",
+                                                attributes: base)
+        let links = [("GitHub", "https://github.com/kilianc/reobaby"),
+                     ("What's New", "https://github.com/kilianc/reobaby/blob/main/CHANGELOG.md")]
+        for (i, (title, url)) in links.enumerated() {
+            if i > 0 { credits.append(NSAttributedString(string: "  ·  ", attributes: base)) }
+            var attributes = base
+            attributes[.link] = URL(string: url)
+            credits.append(NSAttributedString(string: title, attributes: attributes))
+        }
+        return credits
+    }
+
     @MainActor @objc func updateAction(_ sender: Any?) {
         Updater.shared.menuAction()
     }
@@ -611,6 +639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(.separator())
         menu.addItem(item("Show in Dock", #selector(toggleDockIcon(_:))))
         menu.addItem(item("Cameras…", #selector(showCameras(_:))))
+        menu.addItem(item("About ReoBaby", #selector(showAbout(_:))))
         menu.addItem(item(Updater.shared.menuTitle, #selector(updateAction(_:))))
         let quit = NSMenuItem(title: "Quit ReoBaby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         menu.addItem(quit)
@@ -645,7 +674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let main = NSMenu()
 
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About ReoBaby", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(item("About ReoBaby", #selector(showAbout(_:))))
         appMenu.addItem(item("Check for Updates…", #selector(updateAction(_:))))
         appMenu.addItem(.separator())
         appMenu.addItem(item("Cameras…", #selector(showCameras(_:)), ","))
