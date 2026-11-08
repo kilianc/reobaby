@@ -20,10 +20,16 @@ app on my Mac, so I can keep an eye on my little dude while I work.
 ## What it does
 
 - **Picture-in-picture window.** Frameless, any size, optionally pinned above
-  every other window. Controls appear on hover: camera, mute, volume, pin.
+  every other window. Controls appear on hover: camera, pause, mute, volume, pin.
 - **Menu bar.** Hover the moon icon to peek at the camera when the window isn't
   on screen; click the peek to keep it. Closing the window keeps ReoBaby running
-  there.
+  there. Turn off **Show in Dock** in its menu to keep ReoBaby in the menu bar
+  only.
+- **Pause.** Press Space, or choose **Pause** from the moon, to disconnect from
+  every camera: no picture, no sound, no notifications until you resume. The
+  moon shows a pause sign meanwhile, and ReoBaby always starts unpaused.
+- **No Camera.** Choose it from the camera list, or press 0, to empty the
+  player while motion and sound notifications keep working.
 - **Notifications** for motion (including person, vehicle and animal on cameras
   with AI detection) and for sound, each with a snapshot. Sound is measured on
   your Mac from each camera's audio, even while muted.
@@ -120,11 +126,13 @@ defaults write com.kilianciuffolo.cam notifyCooldown -float 600
 
 | Key | Action |
 | --- | --- |
+| Space | Pause or resume |
 | M | Mute or unmute |
 | ↑ ↓ | Volume |
 | T | Float on top |
 | ← → or Tab, `[` `]` | Previous or next camera |
 | 1–9, ⌘1–⌘9 | Jump to a camera |
+| 0, ⌘0 | No camera |
 | ⌃⌘F | Full screen |
 
 Right-click the video for the same menu.

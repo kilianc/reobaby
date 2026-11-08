@@ -72,6 +72,7 @@ final class PlayerView: NSView {
     let videoView = VideoView()
     private let hud = NSVisualEffectView()
     private let cameraButton = HUDButton()
+    private let pauseButton = HUDButton()
     private let muteButton = HUDButton()
     private let pinButton = HUDButton()
     private let volumeSlider = HUDSlider()
@@ -80,6 +81,7 @@ final class PlayerView: NSView {
     private var hideTimer: Timer?
     private var controlsShown = false
 
+    var onPause: (() -> Void)?
     var onMute: (() -> Void)?
     var onPin: (() -> Void)?
     var onVolume: ((Float) -> Void)?
@@ -113,6 +115,7 @@ final class PlayerView: NSView {
         cameraButton.font = .systemFont(ofSize: 12, weight: .semibold)
         cameraButton.lineBreakMode = .byTruncatingTail
         cameraButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        configure(pauseButton, symbol: "pause.fill", tip: "Pause (Space)", action: #selector(pauseClicked))
         configure(muteButton, symbol: "speaker.slash.fill", tip: "Mute (M)", action: #selector(muteClicked))
         configure(pinButton, symbol: "pin.fill", tip: "Float on top (T)", action: #selector(pinClicked))
 
@@ -126,7 +129,7 @@ final class PlayerView: NSView {
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
         volumeSlider.widthAnchor.constraint(equalToConstant: 64).isActive = true
 
-        let stack = NSStackView(views: [cameraButton, muteButton, volumeSlider, pinButton])
+        let stack = NSStackView(views: [cameraButton, pauseButton, muteButton, volumeSlider, pinButton])
         stack.setCustomSpacing(6, after: volumeSlider)
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 4)
@@ -186,9 +189,11 @@ final class PlayerView: NSView {
         }
     }
 
-    func update(cameraName: String?, muted: Bool, volume: Float, pinned: Bool) {
+    func update(cameraName: String?, paused: Bool, muted: Bool, volume: Float, pinned: Bool) {
         cameraButton.title = cameraName ?? "No camera"
         cameraButton.isHidden = cameraName == nil
+        pauseButton.image = symbol(paused ? "play.fill" : "pause.fill")
+        pauseButton.toolTip = paused ? "Resume (Space)" : "Pause (Space)"
         let speaker = muted ? "speaker.slash.fill"
             : volume < 0.01 ? "speaker.fill"
             : volume < 0.34 ? "speaker.wave.1.fill"
@@ -212,6 +217,7 @@ final class PlayerView: NSView {
         poke()
     }
 
+    @objc private func pauseClicked() { onPause?() }
     @objc private func muteClicked() { onMute?() }
     @objc private func volumeChanged() { onVolume?(volumeSlider.floatValue) }
 

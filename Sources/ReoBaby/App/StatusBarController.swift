@@ -14,6 +14,9 @@ final class StatusBarController: NSResponder, NSMenuDelegate {
     /// Restores the player's normal window level/behaviour after a peek.
     var restorePlayerLevel: (() -> Void)?
 
+    private var alert = false
+    private var paused = false
+
     private var hoverWork: DispatchWorkItem?
     private var peek: (wasVisible: Bool, frame: NSRect, behavior: NSWindow.CollectionBehavior)?
     private var peekTimer: Timer?
@@ -24,8 +27,7 @@ final class StatusBarController: NSResponder, NSMenuDelegate {
         super.init()
         statusMenu.delegate = self
         item.menu = statusMenu
-        item.button?.image = Self.glyph(alert: false)
-        item.button?.toolTip = "ReoBaby"
+        refreshIcon()
         if let button = item.button {
             button.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                                   owner: self, userInfo: nil))
@@ -37,7 +39,19 @@ final class StatusBarController: NSResponder, NSMenuDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     func setAlert(_ on: Bool) {
-        item.button?.image = Self.glyph(alert: on)
+        alert = on
+        refreshIcon()
+    }
+
+    func setPaused(_ on: Bool) {
+        paused = on
+        if on { alert = false }
+        refreshIcon()
+    }
+
+    private func refreshIcon() {
+        item.button?.image = Self.glyph(alert: alert, paused: paused)
+        item.button?.toolTip = paused ? "ReoBaby is paused" : "ReoBaby"
     }
 
     // MARK: - Menu
@@ -137,8 +151,9 @@ final class StatusBarController: NSResponder, NSMenuDelegate {
 
     // MARK: - Icon
 
-    /// The app icon's moon-in-a-lens as a menu bar glyph; with a red dot when something happened.
-    private static func glyph(alert: Bool) -> NSImage {
+    /// The app icon's moon-in-a-lens as a menu bar glyph; with a red dot when something happened,
+    /// and a pause sign in place of the moon while paused.
+    private static func glyph(alert: Bool, paused: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
             let ink = alert ? NSColor.labelColor : NSColor.black
             ink.setStroke()
@@ -146,6 +161,11 @@ final class StatusBarController: NSResponder, NSMenuDelegate {
             let ring = NSBezierPath(ovalIn: NSRect(x: 1.6, y: 1.6, width: 14.8, height: 14.8))
             ring.lineWidth = 1.6
             ring.stroke()
+            if paused {
+                NSBezierPath(roundedRect: NSRect(x: 6, y: 5.5, width: 2.2, height: 7), xRadius: 0.6, yRadius: 0.6).fill()
+                NSBezierPath(roundedRect: NSRect(x: 9.8, y: 5.5, width: 2.2, height: 7), xRadius: 0.6, yRadius: 0.6).fill()
+                return true
+            }
             // Crescent: a disc with a bite taken out of its upper right.
             NSGraphicsContext.saveGraphicsState()
             // Moon disc centred in the ring (centre 9, 9).

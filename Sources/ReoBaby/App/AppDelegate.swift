@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var player: CameraPlayer!
     private var cameras: [Camera] = []
     private var currentIndex = 0
+    /// `currentIndex` when No Camera is chosen: the player shows nothing, notifications go on.
+    private static let noCamera = -1
     private var loadedConfig: Data?
     private var configWatcher: DispatchSourceFileSystemObject?
     private var reloadWork: DispatchWorkItem?
@@ -43,14 +45,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    /// Paused, ReoBaby keeps no connection to any camera: no picture, no sound, no notifications.
+    /// It isn't remembered, so ReoBaby always starts watching.
+    private var paused = false {
+        didSet {
+            guard paused != oldValue else { return }
+            statusBar.setPaused(paused)
+            if paused {
+                player.stop()
+                syncMonitors()
+                if !cameras.isEmpty { showPaused() }
+            } else if cameras.isEmpty {
+                reloadCameras(force: true)
+            } else {
+                fetchDeviceNames()
+                syncMonitors()
+                select(currentIndex)
+            }
+            refreshControls()
+        }
+    }
+
+    private var showsDockIcon = true {
+        didSet {
+            defaults.set(showsDockIcon, forKey: "showDockIcon")
+            applyDockIcon()
+        }
+    }
+
     private var currentCamera: Camera? {
         cameras.indices.contains(currentIndex) ? cameras[currentIndex] : nil
     }
 
     // MARK: - Lifecycle
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        defaults.register(defaults: ["muted": true, "pinned": true, "volume": 1.0, "showDockIcon": true])
+        showsDockIcon = defaults.bool(forKey: "showDockIcon")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        defaults.register(defaults: ["muted": true, "pinned": true, "volume": 1.0])
         buildMainMenu()
 
         playerView = PlayerView(frame: NSRect(x: 0, y: 0, width: 480, height: 270))
@@ -65,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         player.onState = { [weak self] in self?.handle($0) }
         player.onVideoSize = { [weak self] in self?.applyVideoSize($0) }
 
+        playerView.onPause = { [weak self] in self?.togglePause(nil) }
         playerView.onMute = { [weak self] in self?.toggleMute(nil) }
         playerView.onPin = { [weak self] in self?.togglePin(nil) }
         playerView.onVolume = { [weak self] in self?.setVolume($0) }
@@ -160,16 +195,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let previous = currentCamera
         cameras = list
-        fetchDeviceNames()
+        if !paused { fetchDeviceNames() }
         syncMonitors()
         guard !list.isEmpty else {
             player.stop()
             showNoCameras()
             return
         }
-        let wanted = initial ? defaults.string(forKey: "camera") : previous?.url
-        let index = list.firstIndex { $0.url == wanted } ?? list.firstIndex { $0.name == wanted } ?? 0
-        if initial || list[index] != previous {
+        // "" is No Camera.
+        let wanted = initial ? defaults.string(forKey: "camera") : currentIndex == Self.noCamera ? "" : previous?.url
+        let index = wanted == "" ? Self.noCamera
+            : list.firstIndex { $0.url == wanted } ?? list.firstIndex { $0.name == wanted } ?? 0
+        if initial || (list.indices.contains(index) ? list[index] : nil) != previous {
             select(index)
         } else {
             currentIndex = index
@@ -196,17 +233,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func select(_ index: Int) {
-        guard cameras.indices.contains(index) else { return }
+        guard index == Self.noCamera || cameras.indices.contains(index) else { return }
         currentIndex = index
-        let camera = cameras[index]
-        defaults.set(camera.url, forKey: "camera")
+        defaults.set(currentCamera?.url ?? "", forKey: "camera")
         refreshControls()
+        guard !paused else {
+            player.stop()
+            return showPaused()
+        }
+        guard let camera = currentCamera else {
+            player.stop()
+            return playerView.showStatus("No camera selected")
+        }
         guard let endpoint = camera.endpoint() else {
             player.stop()
             playerView.showStatus("“\(camera.displayName)” needs an rtsp:// url")
             return
         }
         player.play(endpoint)
+    }
+
+    private func showPaused() {
+        playerView.showStatus("Paused\nPress Space to resume")
     }
 
     /// Fills in names for cameras that don't set one in cameras.json, from the camera itself.
@@ -230,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// One background monitor per camera with a known password; restarted when its settings change.
     private func syncMonitors() {
         var wanted: [String: (Camera, RTSPEndpoint)] = [:]
-        for camera in cameras {
+        for camera in cameras where !paused {
             if let ep = camera.endpoint(), ep.password != nil { wanted[camera.url] = (camera, ep) }
         }
         for (url, monitor) in monitors where wanted[url].map({ $0.1 != monitor.endpoint || $0.0 != monitor.camera }) ?? true {
@@ -254,8 +302,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func step(_ delta: Int) {
-        guard cameras.count > 1 else { return }
-        select((currentIndex + delta + cameras.count) % cameras.count)
+        guard cameras.count > 1 || (currentIndex == Self.noCamera && !cameras.isEmpty) else { return }
+        let from = currentIndex == Self.noCamera ? (delta > 0 ? -1 : cameras.count) : currentIndex
+        select((from + delta + cameras.count) % cameras.count)
     }
 
     private func watchConfig() {
@@ -278,6 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Player state
 
     private func handle(_ state: CameraPlayer.State) {
+        // A state the player sent just before it was stopped.
+        guard !paused, currentCamera != nil else { return }
         let name = currentCamera?.displayName ?? "camera"
         switch state {
         case .connecting:
@@ -352,6 +403,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Actions
 
+    @objc func togglePause(_ sender: Any?) { paused.toggle() }
+    @objc func toggleDockIcon(_ sender: Any?) { showsDockIcon.toggle() }
     @objc func toggleMute(_ sender: Any?) { muted.toggle() }
     @objc func volumeUp(_ sender: Any?) { setVolume(volume + 0.1) }
     @objc func volumeDown(_ sender: Any?) { setVolume(volume - 0.1) }
@@ -379,6 +432,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func showPlayer(_ sender: Any?) {
         statusBar?.setAlert(false)
+        // Without a Dock icon, the menu bar is the only way back after Hide ReoBaby (⌘H).
+        if NSApp.isHidden { NSApp.unhide(nil) }
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
@@ -418,8 +473,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             : [.fullScreenPrimary]
     }
 
+    /// Without a Dock icon ReoBaby lives in the menu bar only, and leaves ⌘Tab too.
+    private func applyDockIcon() {
+        let policy: NSApplication.ActivationPolicy = showsDockIcon ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+        let wasActive = NSApp.isActive
+        NSApp.setActivationPolicy(policy)
+        // Switching policy deactivates the app; stay in front if it was.
+        if wasActive, window != nil { DispatchQueue.main.async { NSApp.activate() } }
+    }
+
     private func refreshControls() {
-        playerView?.update(cameraName: currentCamera?.displayName, muted: muted, volume: volume, pinned: pinned)
+        let name = currentCamera?.displayName ?? (cameras.isEmpty ? nil : "No Camera")
+        playerView?.update(cameraName: name, paused: paused, muted: muted, volume: volume, pinned: pinned)
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -429,10 +495,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case 124, 48: step(1); return true // → / tab
         case 126: volumeUp(nil); return true // ↑
         case 125: volumeDown(nil); return true // ↓
+        case 49: togglePause(nil); return true // space
         default: break
         }
-        if let c = event.charactersIgnoringModifiers, let digit = Int(c), digit >= 1, digit <= cameras.count {
-            select(digit - 1)
+        if let c = event.charactersIgnoringModifiers, let digit = Int(c), !cameras.isEmpty, digit <= cameras.count {
+            select(digit == 0 ? Self.noCamera : digit - 1)
             return true
         }
         return false
@@ -440,6 +507,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(togglePause(_:)):
+            item.title = paused ? "Resume" : "Pause"
+        case #selector(toggleDockIcon(_:)):
+            item.state = showsDockIcon ? .on : .off
         case #selector(toggleMute(_:)):
             item.state = muted ? .on : .off
         case #selector(togglePin(_:)):
@@ -467,11 +538,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Menus
 
+    /// The cameras, then No Camera.
     private func cameraItems(withShortcuts: Bool) -> [NSMenuItem] {
-        cameras.enumerated().map { index, camera in
-            let key = withShortcuts && index < 9 ? "\(index + 1)" : ""
-            let item = NSMenuItem(title: camera.displayName, action: #selector(chooseCamera(_:)), keyEquivalent: key)
-            item.tag = index
+        guard !cameras.isEmpty else { return [] }
+        let names = cameras.map(\.displayName) + ["No Camera"]
+        return names.enumerated().map { index, name in
+            let none = index == cameras.count
+            let key = !withShortcuts ? "" : none ? "0" : index < 9 ? "\(index + 1)" : ""
+            let item = NSMenuItem(title: name, action: #selector(chooseCamera(_:)), keyEquivalent: key)
+            item.tag = none ? Self.noCamera : index
             item.target = self
             return item
         }
@@ -497,14 +572,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             entry.tag = index
             menu.addItem(entry)
         }
-        if !cameras.isEmpty { menu.addItem(.separator()) }
+        if !cameras.isEmpty {
+            let none = item("No Camera", #selector(chooseCamera(_:)))
+            none.tag = Self.noCamera
+            menu.addItem(none)
+            menu.addItem(.separator())
+        }
         menu.addItem(item("Show Player", #selector(showPlayer(_:))))
+        menu.addItem(item(paused ? "Resume" : "Pause", #selector(togglePause(_:))))
         menu.addItem(item("Float on Top", #selector(togglePin(_:))))
         menu.addItem(item("Mute", #selector(toggleMute(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Notify on Motion", #selector(toggleNotifyMotion(_:))))
         menu.addItem(item("Notify on Sound", #selector(toggleNotifySound(_:))))
         menu.addItem(.separator())
+        menu.addItem(item("Show in Dock", #selector(toggleDockIcon(_:))))
         menu.addItem(item("Cameras…", #selector(showCameras(_:))))
         menu.addItem(item(Updater.shared.menuTitle, #selector(updateAction(_:))))
         let quit = NSMenuItem(title: "Quit ReoBaby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
@@ -524,6 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.insertItem(.separator(), at: 0)
         menu.insertItem(item("Float on Top", #selector(togglePin(_:))), at: 0)
         menu.insertItem(item("Mute", #selector(toggleMute(_:))), at: 0)
+        menu.insertItem(item(paused ? "Resume" : "Pause", #selector(togglePause(_:))), at: 0)
         return menu
     }
 
@@ -571,6 +654,8 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu.title == "Controls" else { return }
         menu.removeAllItems()
+        // Space is handled by the player itself, so a space typed in the Cameras window never pauses.
+        menu.addItem(item(paused ? "Resume" : "Pause", #selector(togglePause(_:))))
         menu.addItem(item("Mute", #selector(toggleMute(_:)), "m", []))
         menu.addItem(item("Volume Up", #selector(volumeUp(_:)), String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)), []))
         menu.addItem(item("Volume Down", #selector(volumeDown(_:)), String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)), []))
