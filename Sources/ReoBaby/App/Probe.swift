@@ -99,6 +99,7 @@ enum Probe {
         print("""
         video: \(s.frames) frames (\(s.keyframes) key, ~\(String(format: "%.1f", fps)) fps), decoded \(s.decoded), decode errors \(s.errors)\(s.lastError == 0 ? "" : " (last OSStatus \(s.lastError))")
         audio: \(s.audioBuffers) buffers, renderer status \(sink.audio.status.rawValue)\(sink.audio.error.map { " error: \($0)" } ?? "")
+        sound: \(s.levels)
         """)
         if let password = endpoint.password {
             final class Box { var done = false; var name: String? }
@@ -119,10 +120,15 @@ enum Probe {
 private final class ProbeSink: MediaSink {
     struct Stats {
         var frames = 0, keyframes = 0, decoded = 0, errors = 0, audioBuffers = 0
+        var inSquares: Double = 0, inSamples = 0, outSquares: Double = 0, outSamples = 0
+        var outPeak: Float = 0
         var lastError: OSStatus = 0
     }
 
     let audio = AVSampleBufferAudioRenderer()
+    private let booster = AudioBooster()
+    private let inDecoder = AudioDecoder()
+    private let outDecoder = AudioDecoder()
     private let synchronizer = AVSampleBufferRenderSynchronizer()
     private let lock = NSLock()
     private var counters = Stats()
@@ -149,6 +155,8 @@ private final class ProbeSink: MediaSink {
     func reset(clearImage: Bool) {
         synchronizer.rate = 0
         audio.flush()
+        booster.reset()
+        inDecoder.reset()
     }
 
     func start(latency: Double) {
@@ -185,9 +193,30 @@ private final class ProbeSink: MediaSink {
 
     func enqueueAudio(_ sample: CMSampleBuffer) {
         update { $0.audioBuffers += 1 }
-        audio.enqueue(sample)
+        let louder = booster.process(sample)
+        if let louder { audio.enqueue(louder) }
+        // Levels before and after the boost, as you would hear them.
+        if let before = inDecoder.decode(sample), let after = louder.flatMap(outDecoder.decode) {
+            update {
+                $0.inSquares += Double(before.meanSquare) * Double(before.samples.count)
+                $0.inSamples += before.samples.count
+                $0.outSquares += Double(after.meanSquare) * Double(after.samples.count)
+                $0.outSamples += after.samples.count
+                $0.outPeak = max($0.outPeak, after.samples.map(abs).max() ?? 0)
+            }
+        }
     }
 
     var videoFailed: Bool { false }
     func flushVideo() {}
+}
+
+private extension ProbeSink.Stats {
+    var levels: String {
+        guard inSamples > 0, outSamples > 0 else { return "no levels" }
+        func db(_ squares: Double, _ count: Int) -> Float { AudioLevelMeter.decibels(Float(squares / Double(count))) }
+        return String(format: "%.1f dB from the camera, %.1f dB after the %.0f dB boost, peaks %.1f dBFS",
+                      db(inSquares, inSamples), db(outSquares, outSamples), AudioBooster.boostDB,
+                      AudioLevelMeter.decibels(outPeak * outPeak))
+    }
 }

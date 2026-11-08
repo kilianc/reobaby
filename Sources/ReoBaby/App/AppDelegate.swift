@@ -7,7 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var player: CameraPlayer!
     private var cameras: [Camera] = []
     private var currentIndex = 0
-    /// `currentIndex` when No Camera is chosen: the player shows nothing, notifications go on.
+    /// `currentIndex` when No Camera is chosen: the player is closed, notifications go on.
+    /// The "camera" default keeps the last camera watched, for Show Player.
     private static let noCamera = -1
     private var loadedConfig: Data?
     private var configWatcher: DispatchSourceFileSystemObject?
@@ -116,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         statusBar.populateMenu = { [weak self] in self?.populateStatusMenu($0) }
         statusBar.playerIsFloating = { [weak self] in
             guard let self else { return false }
+            // With No Camera there's nothing to peek at either.
+            if self.currentIndex == Self.noCamera && !self.cameras.isEmpty { return true }
             return self.pinned && self.window.isVisible && !self.window.isMiniaturized && self.window.isOnActiveSpace
         }
         statusBar.restorePlayerLevel = { [weak self] in self?.applyPinned() }
@@ -126,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         reloadCameras(initial: true)
         watchConfig()
 
-        window.makeKeyAndOrderFront(nil)
+        if !Self.noCameraSaved(defaults) { window.makeKeyAndOrderFront(nil) }
         window.makeFirstResponder(playerView)
         NSApp.activate()
         Updater.shared.start()
@@ -185,10 +188,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Read passwords in the background first, so a keychain prompt never freezes the UI.
         let accounts = list.compactMap(\.keychainAccount).filter { !Keychain.isLoaded($0) }
         if !accounts.isEmpty {
-            playerView.showStatus("Waiting for keychain access…")
+            // Usually instant; worth a word only when macOS stops to ask for keychain access.
+            let waiting = DispatchWorkItem { [weak self] in self?.playerView.showStatus("Waiting for keychain access…") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: waiting)
             DispatchQueue.global(qos: .userInitiated).async {
                 for account in Set(accounts) { _ = Keychain.password(account: account) }
-                DispatchQueue.main.async { self.reloadCameras(initial: initial, force: true) }
+                DispatchQueue.main.async {
+                    waiting.cancel()
+                    self.reloadCameras(initial: initial, force: true)
+                }
             }
             return
         }
@@ -202,9 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             showNoCameras()
             return
         }
-        // "" is No Camera.
-        let wanted = initial ? defaults.string(forKey: "camera") : currentIndex == Self.noCamera ? "" : previous?.url
-        let index = wanted == "" ? Self.noCamera
+        let none = initial ? Self.noCameraSaved(defaults) : currentIndex == Self.noCamera
+        let wanted = initial ? defaults.string(forKey: "camera") : previous?.url
+        let index = none ? Self.noCamera
             : list.firstIndex { $0.url == wanted } ?? list.firstIndex { $0.name == wanted } ?? 0
         if initial || (list.indices.contains(index) ? list[index] : nil) != previous {
             select(index)
@@ -234,16 +242,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func select(_ index: Int) {
         guard index == Self.noCamera || cameras.indices.contains(index) else { return }
+        let reopening = currentIndex == Self.noCamera && index != Self.noCamera
         currentIndex = index
-        defaults.set(currentCamera?.url ?? "", forKey: "camera")
+        defaults.set(index == Self.noCamera, forKey: "noCamera")
+        if let camera = currentCamera { defaults.set(camera.url, forKey: "camera") }
         refreshControls()
+        guard let camera = currentCamera else {
+            player.stop()
+            playerView.showStatus(nil)
+            return window.orderOut(nil)
+        }
+        // A camera chosen while No Camera had closed the player opens it again.
+        if reopening { showPlayer(nil) }
         guard !paused else {
             player.stop()
             return showPaused()
-        }
-        guard let camera = currentCamera else {
-            player.stop()
-            return playerView.showStatus("No camera selected")
         }
         guard let endpoint = camera.endpoint() else {
             player.stop()
@@ -251,6 +264,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         player.play(endpoint)
+    }
+
+    /// ReoBaby 1.3.0 saved No Camera as an empty "camera".
+    private static func noCameraSaved(_ defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: "noCamera") || defaults.string(forKey: "camera") == ""
     }
 
     private func showPaused() {
@@ -432,6 +450,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func showPlayer(_ sender: Any?) {
         statusBar?.setAlert(false)
+        // The player is closed with No Camera: open it on the last camera watched.
+        if currentIndex == Self.noCamera, !cameras.isEmpty {
+            let last = defaults.string(forKey: "camera")
+            select(cameras.firstIndex { $0.url == last } ?? 0)
+        }
         // Without a Dock icon, the menu bar is the only way back after Hide ReoBaby (⌘H).
         if NSApp.isHidden { NSApp.unhide(nil) }
         if window.isMiniaturized { window.deminiaturize(nil) }
@@ -626,6 +649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appMenu.addItem(item("Check for Updates…", #selector(updateAction(_:))))
         appMenu.addItem(.separator())
         appMenu.addItem(item("Cameras…", #selector(showCameras(_:)), ","))
+        appMenu.addItem(item("Show in Dock", #selector(toggleDockIcon(_:))))
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide ReoBaby", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit ReoBaby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

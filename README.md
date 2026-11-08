@@ -6,7 +6,7 @@ A tiny PiP-like window for your Reolink cameras. All local, no cloud. It floats 
 a corner of your screen while you work and tells you when something happens.
 
 **[Download for Mac](https://github.com/kilianc/reobaby/releases/latest/download/ReoBaby.zip)**
-· [Try it in your browser](https://kilianc.github.io/reobaby/) · macOS 14 or later, Apple silicon and Intel
+· [Try it in your browser](https://kilianc.github.io/reobaby/) · [What's new](CHANGELOG.md) · macOS 14 or later, Apple silicon and Intel
 
 ![A Mac desktop with a small ReoBaby window showing a baby asleep in a crib, and a "Sound detected" notification](docs/hero.jpg)
 
@@ -24,12 +24,13 @@ app on my Mac, so I can keep an eye on my little dude while I work.
 - **Menu bar.** Hover the moon icon to peek at the camera when the window isn't
   on screen; click the peek to keep it. Closing the window keeps ReoBaby running
   there. Turn off **Show in Dock** in its menu to keep ReoBaby in the menu bar
-  only.
+  only. It's in the ReoBaby menu too.
 - **Pause.** Press Space, or choose **Pause** from the moon, to disconnect from
   every camera: no picture, no sound, no notifications until you resume. The
   moon shows a pause sign meanwhile, and ReoBaby always starts unpaused.
-- **No Camera.** Choose it from the camera list, or press 0, to empty the
-  player while motion and sound notifications keep working.
+- **No Camera.** Choose it from the camera list, or press 0, to close the
+  player while motion and sound notifications keep working. **Show Player**
+  opens it again on the last camera you watched.
 - **Notifications** for motion (including person, vehicle and animal on cameras
   with AI detection) and for sound, each with a snapshot. Sound is measured on
   your Mac from each camera's audio, even while muted.
@@ -120,6 +121,17 @@ To change the quiet period, in seconds:
 
 ```bash
 defaults write com.kilianciuffolo.cam notifyCooldown -float 600
+```
+
+## Sound
+
+Reolink microphones are quiet, so ReoBaby plays camera sound 24 dB louder
+(about 16 times) and limits the peaks, so a sudden cry doesn't distort. The
+volume slider works on top of that. To change the boost, in dB (0 turns it
+off), then switch cameras to hear the difference:
+
+```bash
+defaults write com.kilianciuffolo.cam audioBoost -float 30
 ```
 
 ## Keyboard
