@@ -3,7 +3,7 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
-## Unreleased
+## 1.6.0 · 2026-11-08
 
 - **Settings.** **Settings…** (⌘,), in the ReoBaby menu and the moon's menu,
   has every setting in one window: General, Cameras, Notifications, Sound and
