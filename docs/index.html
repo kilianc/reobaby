@@ -516,6 +516,7 @@ To github.com:kilianc/reobaby.git
     player: [
       { label: 'ReoBaby', items: () => [
         { title: 'About ReoBaby', action: () => window.open('https://github.com/kilianc/reobaby', '_blank') },
+        '-', { title: 'Settings…', key: '⌘,', action: () => {} },
         '-', { title: 'Hide ReoBaby', key: '⌘H', action: close }, { title: 'Quit ReoBaby', key: '⌘Q', action: quit },
       ] },
       { label: 'Controls', items: controls },
@@ -623,8 +624,7 @@ To github.com:kilianc/reobaby.git
     items.push({ title: 'Nursery', action: show }, '-',
       { title: 'Show Player', action: show }, { title: 'Float on Top', checked: S.pinned, action: togglePin },
       { title: 'Mute', checked: S.muted, action: toggleMute }, '-',
-      { title: 'Notify on Motion', checked: true, action: () => {} }, { title: 'Notify on Sound', checked: true, action: () => {} }, '-',
-      { title: 'Quit ReoBaby', action: quit });
+      { title: 'Settings…', action: () => {} }, { title: 'Quit ReoBaby', action: quit });
     showMenu(items, fromEl(moon).x, MENUBAR + 1, moon);
     render();
   });

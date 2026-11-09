@@ -1,8 +1,9 @@
 import Accelerate
 import AVFoundation
 import CoreMedia
+import os
 
-/// Camera sound settings: `defaults write com.kilianciuffolo.cam <key> -float <dB>`.
+/// Camera sound settings, set in Settings ▸ Sound (or `defaults write com.kilianciuffolo.cam <key> -float <dB>`).
 enum SoundSettings {
     /// How far steady background noise (a fan, a white-noise machine, mic hiss) is turned down
     /// for listening. Gentle, because more starts to sound metallic, and the background is
@@ -27,6 +28,22 @@ enum SoundSettings {
     private static func value(_ key: String, default value: Double) -> Double {
         UserDefaults.standard.object(forKey: key) == nil ? value : UserDefaults.standard.double(forKey: key)
     }
+
+    /// Changes whenever a sound setting does, so streams already playing pick it up.
+    static var revision: Int { state.withLock { $0.revision } }
+
+    private static let state = OSAllocatedUnfairLock(initialState: (revision: 0, values: [Double]()))
+
+    /// Call after any defaults change; bumps `revision` if a sound setting is among them.
+    static func refresh() {
+        let values = [noiseReductionDB, boostDB, thresholdDB, ratio]
+        state.withLock {
+            if $0.values != values {
+                $0.values = values
+                $0.revision += 1
+            }
+        }
+    }
 }
 
 /// Makes camera sound clearer and louder: noise reduction, then a compressor that raises quiet
@@ -44,32 +61,42 @@ final class AudioProcessor {
     private var framesOut = 0
     private var output: (rate: Double, channels: Int, format: CMAudioFormatDescription)?
     private var timeline = AudioTimeline(latency: CameraPlayer.latency)
+    private var revision = -1
 
     init() { reset() }
 
     /// For `--probe`: how well sound kept in step with the picture.
     var sync: AudioTimeline.Stats { timeline.stats }
 
-    /// Called before each new stream; picks up changed settings.
+    /// Called before each new stream.
     func reset() {
         decoder.reset()
-        reduction = Float(max(SoundSettings.noiseReductionDB, 0))
+        applySettings()
         cleaner.reset(reductionDB: reduction)
-        // With no boost the compressor still runs, at unity gain, to tell quiet moments apart.
-        let boost = Float(max(SoundSettings.boostDB, 0))
-        compressor = boost > 0
-            ? Compressor(makeupDB: boost, thresholdDB: Float(SoundSettings.thresholdDB), ratio: Float(max(SoundSettings.ratio, 1)))
-            : Compressor(makeupDB: 0, thresholdDB: 0, ratio: 1)
+        compressor.reset()
         limiter = Limiter()
         timeline.reset()
         framesIn = 0
         framesOut = 0
     }
 
+    /// Takes up the current settings without starting over, so a change is heard right away.
+    private func applySettings() {
+        revision = SoundSettings.revision
+        reduction = Float(max(SoundSettings.noiseReductionDB, 0))
+        cleaner.reductionDB = reduction
+        // With no boost the compressor still runs, at unity gain, to tell quiet moments apart.
+        let boost = Float(max(SoundSettings.boostDB, 0))
+        compressor.makeupDB = boost
+        compressor.threshold = boost > 0 ? Float(SoundSettings.thresholdDB) : 0
+        compressor.ratio = boost > 0 ? Float(max(SoundSettings.ratio, 1)) : 1
+    }
+
     /// The buffer processed, as float PCM, timed to play seamlessly after the last one (see
     /// `AudioTimeline`). The buffer itself, as stamped, when its format can't be decoded; nil
     /// when there is nothing to play yet.
     func process(_ sample: CMSampleBuffer) -> CMSampleBuffer? {
+        if revision != SoundSettings.revision { applySettings() }
         guard let pcm = decoder.decode(sample) else { return decoder.canDecode ? nil : sample }
         guard !pcm.samples.isEmpty else { return nil }
         let first = framesIn
@@ -147,7 +174,10 @@ final class AudioProcessor {
 /// Rumble filter plus noise suppression for every channel of a stream. The sound comes back
 /// `NoiseSuppressor`'s latency later, in whole hops, so a call can return fewer or no samples.
 final class NoiseCleaner {
-    private var reductionDB: Float = 24
+    /// How far noise is turned down; a change applies from the next frame on.
+    var reductionDB: Float = 24 {
+        didSet { suppressors.forEach { $0.reductionDB = reductionDB } }
+    }
     private var format: (rate: Double, channels: Int)?
     private var filters: [HighPass] = []
     private var suppressors: [NoiseSuppressor] = []
@@ -255,7 +285,7 @@ final class NoiseSuppressor {
     private let log2n: vDSP_Length
     private let setup: FFTSetup
     private let window: [Float]
-    private let minGain: Float
+    private var minGain: Float
     private let scale: Float
 
     private var input: [Float]
@@ -297,7 +327,7 @@ final class NoiseSuppressor {
         // Periodic sqrt-Hann for analysis and synthesis: the two multiply to a Hann window,
         // which sums to exactly 1 at half overlap.
         window = (0..<size).map { sqrtf(0.5 - 0.5 * cosf(2 * .pi * Float($0) / Float(size))) }
-        minGain = powf(10, -max(reductionDB, 0) / 20)
+        minGain = Self.gain(reductionDB)
         // vDSP's real FFT scales by 2 going forward and by n coming back.
         scale = 1 / Float(2 * size)
 
@@ -318,6 +348,12 @@ final class NoiseSuppressor {
         framesPerWindow = max(1, Int(Self.memory * framesPerSecond) / Self.windows)
         warmup = max(1, Int(0.5 * framesPerSecond))
     }
+
+    var reductionDB: Float = 0 {
+        didSet { minGain = Self.gain(reductionDB) }
+    }
+
+    private static func gain(_ reductionDB: Float) -> Float { powf(10, -max(reductionDB, 0) / 20) }
 
     deinit {
         vDSP_destroy_fftsetup(setup)
@@ -441,9 +477,9 @@ final class NoiseSuppressor {
 /// the quietest the room has been recently gets up to `expansion` dB less boost (a downward
 /// expander), so the room stays as quiet as the camera hears it while sounds come up clearly.
 struct Compressor {
-    let makeupDB: Float
-    private let threshold: Float
-    private let ratio: Float
+    var makeupDB: Float
+    var threshold: Float
+    var ratio: Float
     private let knee: Float = 10
     /// Boost held back from the background, and how far above it sound gets the full boost.
     private let expansion: Float = 30
@@ -468,6 +504,15 @@ struct Compressor {
         self.makeupDB = makeupDB
         threshold = thresholdDB
         self.ratio = ratio
+    }
+
+    /// Forgets the last stream, so the next one's background is learned afresh.
+    mutating func reset() {
+        envelope = 0
+        steady = 0
+        floor = nil
+        settling = nil
+        quiet = true
     }
 
     mutating func process(_ pcm: inout AudioDecoder.PCM) {

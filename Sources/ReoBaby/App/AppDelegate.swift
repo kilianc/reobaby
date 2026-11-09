@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var promptOpen = false
     private var namesRequested = Set<String>()
     private var statusBar: StatusBarController!
-    private var camerasWindow: CamerasController?
+    private var settings: SettingsController?
     private var offeredAddCameras = false
     private let alerts = Alerts()
     /// Motion and sound notifications for the chosen camera, even while the player is closed.
@@ -124,11 +124,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alerts.onChange = { [weak self] isNew in self?.statusBar.setAlert(isNew) }
         alerts.requestAuthorization()
 
+        // Settings writes user defaults; apply what changed.
+        SoundSettings.refresh()
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.defaultsChanged() }
+        }
+
         reloadCameras(initial: true)
         watchConfig()
 
         if !Self.noCameraSaved(defaults) { window.makeKeyAndOrderFront(nil) }
         window.makeFirstResponder(playerView)
+        // Opens Settings on a pane at launch, in front of the player, for demos and screenshots.
+        if let pane = ProcessInfo.processInfo.environment["REOBABY_SETTINGS"].flatMap(SettingsPane.init) {
+            openSettings(pane)
+        }
         NSApp.activate()
         Updater.shared.start()
     }
@@ -223,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Nothing to play yet: say how to add a camera, and offer to find them once per launch.
     private func showNoCameras() {
-        playerView.showStatus("No cameras yet.\nReoBaby ▸ Cameras… (⌘,)")
+        playerView.showStatus("No cameras yet.\nReoBaby ▸ Settings… (⌘,)")
         refreshControls()
         guard !offeredAddCameras else { return }
         offeredAddCameras = true
@@ -421,7 +431,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Actions
 
     @objc func togglePause(_ sender: Any?) { paused.toggle() }
-    @objc func toggleDockIcon(_ sender: Any?) { showsDockIcon.toggle() }
     @objc func toggleMute(_ sender: Any?) { muted.toggle() }
     @objc func volumeUp(_ sender: Any?) { setVolume(volume + 0.1) }
     @objc func volumeDown(_ sender: Any?) { setVolume(volume - 0.1) }
@@ -461,25 +470,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate()
     }
 
-    @objc func toggleNotifyMotion(_ sender: Any?) { alerts.notifyMotion.toggle() }
-    @objc func toggleNotifySound(_ sender: Any?) { alerts.notifySound.toggle() }
     @objc func clearRecent(_ sender: Any?) { alerts.clearRecent() }
 
-    @objc func showCameras(_ sender: Any?) {
-        if let camerasWindow { return camerasWindow.show() }
-        let controller = CamerasController()
-        controller.onChange = { [weak self] in self?.reloadCameras(force: true) }
-        controller.onOpenFile = { [weak self] in self?.editCameras(nil) }
-        controller.onFinish = { [weak self] added in
-            guard let self else { return }
-            self.camerasWindow = nil
-            if let first = added.first { self.openCamera(url: first) }
+    @MainActor @objc func showSettings(_ sender: Any?) { openSettings(nil) }
+    @MainActor @objc func showCameras(_ sender: Any?) { openSettings(.cameras) }
+    @MainActor @objc func showAbout(_ sender: Any?) { openSettings(.about) }
+
+    @MainActor private func openSettings(_ pane: SettingsPane?) {
+        if let settings { return settings.show(pane) }
+        let controller = SettingsController()
+        controller.cameras.onChange = { [weak self] in self?.reloadCameras(force: true) }
+        controller.cameras.onOpenFile = { [weak self] in self?.editCameras(nil) }
+        // A camera added in Settings plays once Settings closes.
+        controller.onClose = { [weak self] added in
+            if let first = added.first { self?.openCamera(url: first) }
         }
-        camerasWindow = controller
-        controller.show()
+        settings = controller
+        controller.show(pane)
     }
 
-    /// Opens cameras.json in a text editor, for what the Cameras window doesn't cover.
+    /// A setting changed, most likely in Settings.
+    @MainActor private func defaultsChanged() {
+        let pinnedNow = defaults.bool(forKey: "pinned")
+        if pinnedNow != pinned { pinned = pinnedNow }
+        let dockNow = defaults.bool(forKey: "showDockIcon")
+        if dockNow != showsDockIcon { showsDockIcon = dockNow }
+        SoundSettings.refresh()
+        Updater.shared.setAutomatic(defaults.object(forKey: "autoUpdate") as? Bool ?? true)
+    }
+
+    /// Opens cameras.json in a text editor, for what Settings ▸ Cameras doesn't cover.
     @objc func editCameras(_ sender: Any?) {
         ConfigStore.writeTemplateIfMissing()
         if !NSWorkspace.shared.open(ConfigStore.file),
@@ -531,18 +551,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         switch item.action {
         case #selector(togglePause(_:)):
             item.title = paused ? "Resume" : "Pause"
-        case #selector(toggleDockIcon(_:)):
-            item.state = showsDockIcon ? .on : .off
         case #selector(toggleMute(_:)):
             item.state = muted ? .on : .off
         case #selector(togglePin(_:)):
             item.state = pinned ? .on : .off
         case #selector(chooseCamera(_:)), #selector(chooseCameraAndShow(_:)):
             item.state = item.tag == currentIndex ? .on : .off
-        case #selector(toggleNotifyMotion(_:)):
-            item.state = alerts.notifyMotion ? .on : .off
-        case #selector(toggleNotifySound(_:)):
-            item.state = alerts.notifySound ? .on : .off
         case #selector(nextCamera(_:)), #selector(previousCamera(_:)):
             return cameras.count > 1
         case #selector(updateAction(_:)):
@@ -552,34 +566,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             break
         }
         return true
-    }
-
-    /// The standard About panel, with what ReoBaby is and where it lives. It's in the moon's menu
-    /// too, since there's no app menu without a Dock icon.
-    @objc func showAbout(_ sender: Any?) {
-        NSApp.activate()
-        NSApp.orderFrontStandardAboutPanel(options: [.credits: Self.aboutCredits()])
-    }
-
-    private static func aboutCredits() -> NSAttributedString {
-        let centered = NSMutableParagraphStyle()
-        centered.alignment = .center
-        let base: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-            .foregroundColor: NSColor.secondaryLabelColor,
-            .paragraphStyle: centered,
-        ]
-        let credits = NSMutableAttributedString(string: "A tiny window for your Reolink cameras.\nAll local, no cloud.\n\n",
-                                                attributes: base)
-        let links = [("GitHub", "https://github.com/kilianc/reobaby"),
-                     ("What's New", "https://github.com/kilianc/reobaby/blob/main/CHANGELOG.md")]
-        for (i, (title, url)) in links.enumerated() {
-            if i > 0 { credits.append(NSAttributedString(string: "  ·  ", attributes: base)) }
-            var attributes = base
-            attributes[.link] = URL(string: url)
-            credits.append(NSAttributedString(string: title, attributes: attributes))
-        }
-        return credits
     }
 
     @MainActor @objc func updateAction(_ sender: Any?) {
@@ -633,12 +619,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(item("Float on Top", #selector(togglePin(_:))))
         menu.addItem(item("Mute", #selector(toggleMute(_:))))
         menu.addItem(.separator())
-        menu.addItem(item("Notify on Motion", #selector(toggleNotifyMotion(_:))))
-        menu.addItem(item("Notify on Sound", #selector(toggleNotifySound(_:))))
-        menu.addItem(.separator())
-        menu.addItem(item("Show in Dock", #selector(toggleDockIcon(_:))))
-        menu.addItem(item("Cameras…", #selector(showCameras(_:))))
-        menu.addItem(item("About ReoBaby", #selector(showAbout(_:))))
+        // Without a Dock icon there's no app menu, so Settings (and About in it) is here too.
+        menu.addItem(item("Settings…", #selector(showSettings(_:))))
         menu.addItem(item(Updater.shared.menuTitle, #selector(updateAction(_:))))
         let quit = NSMenuItem(title: "Quit ReoBaby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         menu.addItem(quit)
@@ -676,8 +658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appMenu.addItem(item("About ReoBaby", #selector(showAbout(_:))))
         appMenu.addItem(item("Check for Updates…", #selector(updateAction(_:))))
         appMenu.addItem(.separator())
-        appMenu.addItem(item("Cameras…", #selector(showCameras(_:)), ","))
-        appMenu.addItem(item("Show in Dock", #selector(toggleDockIcon(_:))))
+        appMenu.addItem(item("Settings…", #selector(showSettings(_:)), ","))
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide ReoBaby", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit ReoBaby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -706,7 +687,7 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu.title == "Controls" else { return }
         menu.removeAllItems()
-        // Space is handled by the player itself, so a space typed in the Cameras window never pauses.
+        // Space is handled by the player itself, so a space typed in Settings never pauses.
         menu.addItem(item(paused ? "Resume" : "Pause", #selector(togglePause(_:))))
         menu.addItem(item("Mute", #selector(toggleMute(_:)), "m", []))
         menu.addItem(item("Volume Up", #selector(volumeUp(_:)), String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)), []))

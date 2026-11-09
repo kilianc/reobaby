@@ -23,8 +23,8 @@ app on my Mac, so I can keep an eye on my little dude while I work.
   every other window. Controls appear on hover: camera, pause, mute, volume, pin.
 - **Menu bar.** Hover the moon icon to peek at the camera when the window isn't
   on screen; click the peek to keep it. Closing the window keeps ReoBaby running
-  there. Turn off **Show in Dock** in its menu to keep ReoBaby in the menu bar
-  only. It's in the ReoBaby menu too.
+  there. Turn off **Show in Dock** in **Settings › General** to keep ReoBaby in
+  the menu bar only.
 - **Pause.** Press Space, or choose **Pause** from the moon, to disconnect from
   every camera: no picture, no sound, no notifications until you resume. The
   moon shows a pause sign meanwhile, and ReoBaby always starts unpaused.
@@ -36,8 +36,11 @@ app on my Mac, so I can keep an eye on my little dude while I work.
   camera you've chosen, even with the player closed; ReoBaby doesn't connect to
   your other cameras. Sound is measured on your Mac from the camera's audio,
   after noise reduction, even while muted.
-- **Finds your cameras.** The Cameras window looks for Reolink cameras on your
-  network, checks the login and adds them. No IP addresses to look up.
+- **Finds your cameras.** **Settings › Cameras** looks for Reolink cameras on
+  your network, checks the login and adds them. No IP addresses to look up.
+- **Settings** (⌘,) has everything else: open at login, notifications, sound,
+  updates and what's new in them. Every change applies right away. It's in the
+  ReoBaby menu and the moon's menu.
 - **Local only.** ReoBaby connects only to your cameras, and to GitHub to check
   for updates. No account, no cloud, no analytics. Passwords live in the login
   keychain.
@@ -67,19 +70,20 @@ camera's network settings, often **Advanced › Server Settings**, depending on 
 firmware. Camera names and motion alerts also use the camera's HTTP API, so leave
 HTTPS or HTTP on as well.
 
-Then choose **Cameras…** (⌘,) from the ReoBaby menu or the moon in the menu bar.
-It opens by itself the first time. ReoBaby looks for Reolink cameras on your
-network, which takes a second or two, and lists the ones it finds, like Wi-Fi
-lists networks. Click **Add** next to a camera and enter the user and password
-you set up for it in the Reolink app. ReoBaby logs in to check them, then saves
-the password to your keychain. A camera on another network can be added by
-typing its address.
+Then choose **Settings…** (⌘,) from the ReoBaby menu or the moon in the menu
+bar, and click **Cameras**. It opens there by itself the first time. ReoBaby
+looks for Reolink cameras on your network, which takes a second or two, and
+lists the ones it finds under **On Your Network**, like Wi-Fi lists networks.
+Click **Add…** next to a camera and enter the user and password you set up for
+it in the Reolink app. ReoBaby logs in to check them, then saves the password to
+your keychain. A camera on another network can be added by typing its address.
 
-Your cameras are listed in the same window. **Edit** renames a camera, switches
-its picture between high and low resolution, changes its login, or removes it.
+Your cameras are listed under **My Cameras**. **Details…** renames a camera,
+switches its picture between high and low resolution, changes its login, or
+removes it.
 
 ReoBaby keeps the list in `~/.config/reobaby/cameras.json`, which **Open
-cameras.json** at the bottom of the window opens. Changes to the file apply as
+cameras.json** at the bottom of the pane opens. Changes to the file apply as
 soon as you save it.
 
 ```json
@@ -100,16 +104,16 @@ soon as you save it.
 
 ## Updates
 
-ReoBaby checks GitHub for a new version when it starts and every six hours. It
-downloads the new version in the background, checks that it's signed by the same
-developer, and installs it the next time ReoBaby quits, so it never restarts
-while you're watching. To install it right away, choose **Restart to Update**
-from the ReoBaby menu or the moon in the menu bar. **Check for Updates…** checks
-now. To stop the automatic checks:
+ReoBaby checks GitHub for a new version when it starts, every six hours, and
+when you open Settings. It downloads the new version in the background, checks
+that it's signed by the same developer, and installs it the next time ReoBaby
+quits, so it never restarts while you're watching.
 
-```bash
-defaults write com.kilianciuffolo.cam autoUpdate -bool false
-```
+**Settings › General** shows where updates stand and what's new in the latest
+version. To install a downloaded update right away, click **Restart to Update**
+there, or choose it from the ReoBaby menu or the moon in the menu bar. Turn off
+**Check for updates automatically** to stop the automatic checks and downloads;
+**Check Now** still checks.
 
 A copy built from source without a signing certificate doesn't update itself.
 
@@ -118,12 +122,8 @@ A copy built from source without a signing certificate doesn't update itself.
 Each camera notifies at most once every 5 minutes, so someone walking into the
 room gives you one notification, not twenty. ReoBaby waits 3 seconds after the
 first event so the notification can name the most specific thing it saw (a
-person rather than motion). Turn motion or sound alerts off from the menu bar.
-To change the quiet period, in seconds:
-
-```bash
-defaults write com.kilianciuffolo.cam notifyCooldown -float 600
-```
+person rather than motion). **Settings › Notifications** turns motion or sound
+alerts off and changes the quiet period.
 
 ## Sound
 
@@ -145,16 +145,12 @@ before you hear it:
 Sound notifications listen through stronger noise reduction (24 dB), so a cry
 stands out even over a white-noise machine. The volume slider works on top of all this.
 
-To change a step, in dB (0 turns it off), then quit and reopen ReoBaby:
-
-```bash
-defaults write com.kilianciuffolo.cam noiseReduction -float 30
-defaults write com.kilianciuffolo.cam audioBoost -float 30
-```
-
-`compressorThreshold` (dBFS, default -50) is where compression starts, and
-`compressorRatio` (default 2) is how many dB louder a sound must get to come
-out 1 dB louder.
+**Settings › Sound** has a slider for each step, and changes apply while you
+listen. Noise reduction and boost go down to Off; with noise reduction off,
+sound notifications listen without it too. The compressor's threshold
+(default -50 dBFS) is where compression starts, and its ratio (default 2:1) is
+how many dB louder a sound must get to come out 1 dB louder. **Restore
+Defaults** puts all four back.
 
 ## Keyboard
 
@@ -168,6 +164,7 @@ out 1 dB louder.
 | 1–9, ⌘1–⌘9 | Jump to a camera |
 | 0, ⌘0 | No camera |
 | ⌃⌘F | Full screen |
+| ⌘, | Settings |
 
 Right-click the video for the same menu.
 
@@ -190,7 +187,7 @@ Other targets:
 | `make run` | Build and open the app from `build/`. |
 | `make release` | Build a universal (Apple silicon and Intel) app and zip it to `build/ReoBaby.zip`. It needs your signing certificate, because ReoBaby only installs updates signed like the copy they replace. |
 | `make probe CAM="Nursery"` | Connect to a camera without a window and print codecs, frame rate, errors and its name. `CAM` is a name, a number from the list, or an `rtsp://` URL. |
-| `make discover` | List the Reolink cameras on your network, as the Cameras window finds them. |
+| `make discover` | List the Reolink cameras on your network, as Settings › Cameras finds them. |
 | `make test-server` | Start local test cameras in Docker at `rtsp://tester:testpass@127.0.0.1:8554/` with the paths `nursery`, `h264`, `h265` and `beeps`. |
 
 The Makefile signs with your Apple Development certificate if you have one, so

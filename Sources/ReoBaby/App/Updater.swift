@@ -5,7 +5,7 @@ import Security
 /// background and installed when ReoBaby quits, or right away with "Restart to Update".
 /// It is installed only if it's signed by the same developer as the running copy.
 @MainActor
-final class Updater {
+final class Updater: ObservableObject {
     static let shared = Updater()
 
     enum State: Equatable {
@@ -14,7 +14,7 @@ final class Updater {
         case ready(version: String, app: URL)
     }
 
-    private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle
     private var timer: Timer?
     private var relaunch = false
 
@@ -23,7 +23,8 @@ final class Updater {
         .flatMap(URL.init(string:))
         ?? URL(string: "https://api.github.com/repos/kilianc/reobaby/releases/latest")!
 
-    static let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    nonisolated static let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    nonisolated static let currentBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
 
     private var automatic: Bool {
         UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true
@@ -41,6 +42,73 @@ final class Updater {
 
     var menuEnabled: Bool { state != .busy }
 
+    // MARK: - Settings
+
+    /// What Settings ▸ General shows about updates.
+    enum Status: Equatable {
+        /// This copy can't replace itself, and why.
+        case unavailable(String)
+        case notChecked
+        case checking
+        case downloading(version: String)
+        case upToDate
+        case ready(version: String)
+        case failed(String)
+    }
+
+    var status: Status {
+        if let blocker = Self.blocker { return .unavailable(blocker) }
+        switch state {
+        case .busy: return downloading.map { .downloading(version: $0) } ?? .checking
+        case .ready(let version, _): return .ready(version: version)
+        case .idle:
+            if let lastError { return .failed(lastError) }
+            return latest == nil ? .notChecked : .upToDate
+        }
+    }
+
+    /// The newest release on GitHub, from the last check, and the changes listed in its notes.
+    struct Latest: Equatable {
+        let version: String
+        let changes: [String]
+        var isNewer: Bool { version.compare(Updater.currentVersion, options: .numeric) == .orderedDescending }
+    }
+
+    @Published private(set) var latest: Latest?
+    /// The version being downloaded, while it is.
+    @Published private(set) var downloading: String?
+    @Published private(set) var lastError: String?
+    @Published private(set) var lastChecked = UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date
+
+    /// Settings opened: checks now unless it did a moment ago, and downloads what it finds, so an
+    /// update is ready to install by the time it's noticed.
+    func checkIfDue() {
+        guard automatic, Self.blocker == nil, state != .busy else { return }
+        if latest == nil || lastChecked.map({ -$0.timeIntervalSinceNow > 15 * 60 }) ?? true {
+            Task { await check(interactive: false) }
+        }
+    }
+
+    /// Settings' button: restarts into a downloaded update, or checks without an alert, since
+    /// Settings shows the outcome itself.
+    func settingsAction() {
+        if case .ready = state {
+            restartToUpdate()
+        } else {
+            Task { await check(interactive: false) }
+        }
+    }
+
+    /// Settings ▸ General ▸ Check for updates automatically.
+    func setAutomatic(_ on: Bool) {
+        if on {
+            start()
+        } else {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+
     func menuAction() {
         if case .ready = state {
             restartToUpdate()
@@ -53,7 +121,7 @@ final class Updater {
 
     /// Checks shortly after launch, then every six hours.
     func start() {
-        guard automatic, Self.blocker == nil else { return }
+        guard automatic, Self.blocker == nil, timer == nil else { return }
         Task {
             try? await Task.sleep(for: .seconds(30))
             await check(interactive: false)
@@ -72,15 +140,21 @@ final class Updater {
         }
         let previous = state
         state = .busy
+        lastError = nil
+        defer { downloading = nil }
         do {
             let release = try await Self.latestRelease()
             let version = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
+            latest = Latest(version: version, changes: Self.changes(in: release.body))
+            lastChecked = Date()
+            UserDefaults.standard.set(lastChecked, forKey: "lastUpdateCheck")
             if case .ready(let staged, _) = previous, staged == version {
                 state = previous
             } else if version.compare(Self.currentVersion, options: .numeric) == .orderedDescending {
                 guard let asset = release.assets.first(where: { $0.name == "ReoBaby.zip" }) else {
                     throw UpdateError("The \(version) release has no ReoBaby.zip.")
                 }
+                downloading = version
                 let app = try await Self.download(asset.browser_download_url, version: version)
                 if case .ready(_, let old) = previous { Self.discard(old) }
                 state = .ready(version: version, app: app)
@@ -93,6 +167,7 @@ final class Updater {
             }
         } catch {
             state = previous
+            lastError = error.localizedDescription
             NSLog("ReoBaby update: %@", error.localizedDescription)
             if interactive { Self.show("Couldn't check for updates", error.localizedDescription) }
             return
@@ -183,6 +258,24 @@ final class Updater {
         }
         let tag_name: String
         let assets: [Asset]
+        let body: String?
+    }
+
+    /// The changes in a release's notes: the list at the top, before the install instructions.
+    nonisolated static func changes(in body: String?) -> [String] {
+        guard let body else { return [] }
+        let notes = body.replacingOccurrences(of: "\r\n", with: "\n")
+        var changes: [String] = []
+        for line in notes.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("#") { break }
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                changes.append(String(text.dropFirst(2)))
+            } else if !text.isEmpty, let last = changes.indices.last {
+                changes[last] += " " + text
+            }
+        }
+        return changes
     }
 
     /// Why this copy can't replace itself, if it can't.

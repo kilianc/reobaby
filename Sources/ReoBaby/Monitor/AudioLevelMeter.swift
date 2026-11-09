@@ -6,12 +6,19 @@ import CoreMedia
 final class AudioLevelMeter {
     private let decoder = AudioDecoder()
     private let cleaner = NoiseCleaner()
-    private let reducesNoise: Bool
+    private var reducesNoise = false
+    private var revision = -1
 
     init() {
+        applySettings()
+    }
+
+    private func applySettings() {
+        revision = SoundSettings.revision
         let reduction = Float(max(SoundSettings.detectionReductionDB, 0))
+        if reduction > 0 && !reducesNoise { cleaner.reset(reductionDB: reduction) }
+        cleaner.reductionDB = reduction
         reducesNoise = reduction > 0
-        cleaner.reset(reductionDB: reduction)
     }
 
     /// RMS level of the buffer in dBFS (0 = full scale, silence ≈ -100), or nil if undecodable
@@ -21,6 +28,7 @@ final class AudioLevelMeter {
     }
 
     func level(of pcm: AudioDecoder.PCM) -> Float? {
+        if revision != SoundSettings.revision { applySettings() }
         let cleaned = reducesNoise ? cleaner.clean(pcm) : pcm
         return cleaned.samples.isEmpty ? nil : Self.decibels(cleaned.meanSquare)
     }
