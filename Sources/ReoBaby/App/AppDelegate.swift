@@ -127,18 +127,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Settings writes user defaults; apply what changed.
         SoundSettings.refresh()
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) {
-            [weak self] _ in self?.defaultsChanged()
+            [weak self] _ in MainActor.assumeIsolated { self?.defaultsChanged() }
         }
 
         reloadCameras(initial: true)
         watchConfig()
-        // Opens Settings on a pane at launch, for demos and screenshots.
-        if let pane = ProcessInfo.processInfo.environment["REOBABY_SETTINGS"].flatMap(SettingsPane.init) {
-            openSettings(pane)
-        }
 
         if !Self.noCameraSaved(defaults) { window.makeKeyAndOrderFront(nil) }
         window.makeFirstResponder(playerView)
+        // Opens Settings on a pane at launch, in front of the player, for demos and screenshots.
+        if let pane = ProcessInfo.processInfo.environment["REOBABY_SETTINGS"].flatMap(SettingsPane.init) {
+            openSettings(pane)
+        }
         NSApp.activate()
         Updater.shared.start()
     }
@@ -233,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Nothing to play yet: say how to add a camera, and offer to find them once per launch.
     private func showNoCameras() {
-        playerView.showStatus("No cameras yet.\nReoBaby ▸ Cameras… (⌘,)")
+        playerView.showStatus("No cameras yet.\nReoBaby ▸ Settings… (⌘,)")
         refreshControls()
         guard !offeredAddCameras else { return }
         offeredAddCameras = true
@@ -472,11 +472,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func clearRecent(_ sender: Any?) { alerts.clearRecent() }
 
-    @objc func showSettings(_ sender: Any?) { openSettings(nil) }
-    @objc func showCameras(_ sender: Any?) { openSettings(.cameras) }
-    @objc func showAbout(_ sender: Any?) { openSettings(.about) }
+    @MainActor @objc func showSettings(_ sender: Any?) { openSettings(nil) }
+    @MainActor @objc func showCameras(_ sender: Any?) { openSettings(.cameras) }
+    @MainActor @objc func showAbout(_ sender: Any?) { openSettings(.about) }
 
-    private func openSettings(_ pane: SettingsPane?) {
+    @MainActor private func openSettings(_ pane: SettingsPane?) {
         if let settings { return settings.show(pane) }
         let controller = SettingsController()
         controller.cameras.onChange = { [weak self] in self?.reloadCameras(force: true) }
@@ -490,7 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// A setting changed, most likely in Settings.
-    private func defaultsChanged() {
+    @MainActor private func defaultsChanged() {
         let pinnedNow = defaults.bool(forKey: "pinned")
         if pinnedNow != pinned { pinned = pinnedNow }
         let dockNow = defaults.bool(forKey: "showDockIcon")
@@ -499,7 +499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Updater.shared.setAutomatic(defaults.object(forKey: "autoUpdate") as? Bool ?? true)
     }
 
-    /// Opens cameras.json in a text editor, for what the Cameras window doesn't cover.
+    /// Opens cameras.json in a text editor, for what Settings ▸ Cameras doesn't cover.
     @objc func editCameras(_ sender: Any?) {
         ConfigStore.writeTemplateIfMissing()
         if !NSWorkspace.shared.open(ConfigStore.file),
@@ -687,7 +687,7 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu.title == "Controls" else { return }
         menu.removeAllItems()
-        // Space is handled by the player itself, so a space typed in the Cameras window never pauses.
+        // Space is handled by the player itself, so a space typed in Settings never pauses.
         menu.addItem(item(paused ? "Resume" : "Pause", #selector(togglePause(_:))))
         menu.addItem(item("Mute", #selector(toggleMute(_:)), "m", []))
         menu.addItem(item("Volume Up", #selector(volumeUp(_:)), String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)), []))

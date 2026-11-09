@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 
 /// Settings ▸ Cameras: the cameras saved in ReoBaby, and the Reolink cameras on the network it could add.
-/// A new camera is added the way Wi-Fi joins a network: its row opens a login form, ReoBaby logs
-/// in to check it, then the camera goes into cameras.json and its password into the login keychain.
-/// A saved camera's row opens a form to rename it, change its picture or login, or remove it.
+/// A new camera is added the way Wi-Fi joins a network: Add… asks for its login, ReoBaby logs in
+/// to check it, then the camera goes into cameras.json and its password into the login keychain.
+/// A saved camera's Details… renames it, changes its picture or login, or removes it.
 final class CamerasController {
     /// cameras.json changed.
     var onChange: (() -> Void)?
@@ -228,9 +228,11 @@ final class CamerasModel: ObservableObject {
         var title: String { name ?? "Reolink camera" }
     }
 
-    enum Form: Equatable {
+    /// The sheet that's open.
+    enum Form: Hashable, Identifiable {
         case add(String)  // host
         case edit(String) // url
+        var id: Self { self }
     }
 
     @Published var saved: [Saved] = []
@@ -240,7 +242,7 @@ final class CamerasModel: ObservableObject {
     @Published var address = ""
     @Published var fileError: String?
 
-    /// The form that's open, and what's typed in it.
+    /// The sheet that's open, and what's typed in it.
     @Published var form: Form?
     @Published var name = ""
     @Published var quality = Quality.high
@@ -273,289 +275,250 @@ final class CamerasModel: ObservableObject {
     }
 }
 
+
 // MARK: - Views
 
 struct CamerasView: View {
     @ObservedObject var model: CamerasModel
 
     var body: some View {
-        PaneStack {
+        PaneForm {
             if let fileError = model.fileError {
-                Text(fileError)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !model.saved.isEmpty {
-                GroupedSection {
-                    Text("Your cameras")
-                } content: {
-                    ForEach(Array(model.saved.enumerated()), id: \.element.id) { index, camera in
-                        if index > 0 { Divider().padding(.leading, 54) }
-                        SavedRow(camera: camera, model: model)
+                Section {
+                    Label {
+                        Text(fileError)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
                     }
                 }
             }
 
-            GroupedSection {
+            if !model.saved.isEmpty {
+                Section("My Cameras") {
+                    ForEach(model.saved) { camera in
+                        CameraRow(icon: .camera, title: camera.title, host: camera.host) {
+                            Button("Details…") { model.openEdit(camera) }
+                        }
+                    }
+                }
+            }
+
+            Section {
+                if model.blocked && model.found.isEmpty {
+                    BlockedRow()
+                } else if model.found.isEmpty {
+                    Text(model.searching ? "Looking for cameras…"
+                         : model.saved.isEmpty ? "No Reolink cameras found." : "No other cameras found.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(model.found) { camera in
+                    CameraRow(icon: .foundCamera, title: camera.title, host: camera.host) {
+                        Button("Add…") { model.openAdd(camera.host, user: model.saved.first?.user ?? "admin") }
+                    }
+                }
+                AddressRow(model: model)
+            } header: {
                 HStack {
-                    Text("On your network")
+                    Text("On Your Network")
                     Spacer()
                     if model.searching {
                         ProgressView().controlSize(.small)
                     } else {
                         Button(action: model.onSearch) { Image(systemName: "arrow.clockwise") }
                             .buttonStyle(.borderless)
-                            .help("Search again")
+                            .help("Look again")
                     }
                 }
-            } content: {
-                if model.blocked && model.found.isEmpty {
-                    BlockedRow()
-                    Divider()
-                } else if model.found.isEmpty && !model.searching {
-                    Text(model.saved.isEmpty ? "No Reolink cameras found." : "No other cameras found.")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                    Divider()
-                }
-                ForEach(model.found) { camera in
-                    FoundRow(camera: camera, model: model)
-                    Divider().padding(.leading, 54)
-                }
-                HStack(spacing: 12) {
-                    Image(systemName: "plus")
-                        .frame(width: 30)
-                        .foregroundStyle(.secondary)
-                    TextField("Add by address, like 10.0.0.52", text: $model.address)
-                        .textFieldStyle(.plain)
-                        .onSubmit(model.onAddAddress)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
+                .frame(height: 16)
             } footer: {
-                Text("ReoBaby logs in to each camera to check its password, then keeps it in your keychain.")
-            }
-
-            HStack {
-                Button("Open cameras.json", action: model.onOpenFile)
-                    .buttonStyle(.link)
-                    .font(.callout)
-                    .help("For what this pane doesn't cover")
-                Spacer()
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    SectionNote("ReoBaby logs in to each camera to check its password, then keeps it in your keychain.")
+                    Button("Open cameras.json", action: model.onOpenFile)
+                        .buttonStyle(.link)
+                        .font(.subheadline)
+                        .help("For what this pane doesn't cover")
+                }
             }
         }
-        .animation(.easeOut(duration: 0.18), value: model.form)
-    }
-}
-
-/// A rounded group of rows, like System Settings.
-struct GroupedSection<Header: View, Content: View, Footer: View>: View {
-    let header: Header
-    let content: Content
-    let footer: Footer
-
-    init(@ViewBuilder header: () -> Header, @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
-        self.header = header()
-        self.content = content()
-        self.footer = footer()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            header
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-            VStack(spacing: 0) { content }
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.045)))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
-            footer
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 10)
+        .sheet(item: $model.form) { form in
+            CameraSheet(form: form, model: model)
         }
     }
 }
 
-extension GroupedSection where Footer == EmptyView {
-    init(@ViewBuilder header: () -> Header, @ViewBuilder content: () -> Content) {
-        self.init(header: header, content: content, footer: { EmptyView() })
-    }
-}
-
-private struct CameraIcon: View {
-    var dimmed = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .fill(LinearGradient(colors: [Color(red: 0.55, green: 0.47, blue: 0.93), Color(red: 0.36, green: 0.29, blue: 0.75)],
-                                 startPoint: .top, endPoint: .bottom))
-            .frame(width: 30, height: 30)
-            .overlay(Image(systemName: "video.fill").font(.system(size: 13)).foregroundStyle(.white))
-            .opacity(dimmed ? 0.55 : 1)
-    }
-}
-
-/// Icon, name and address, with something on the right; a form opens underneath.
-private struct CameraRowLayout<Trailing: View, Editor: View>: View {
+/// A camera's icon, name and address, with a button on the right.
+private struct CameraRow<Trailing: View>: View {
+    let icon: IconTile
     let title: String
     let host: String
-    let isOpen: Bool
     @ViewBuilder var trailing: Trailing
-    @ViewBuilder var form: Editor
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                CameraIcon()
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                    Text(host).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                }
-                Spacer()
-                if !isOpen { trailing }
+        HStack(spacing: 10) {
+            icon.size(26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(host)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
-            if isOpen {
-                form
-                    .padding(.leading, 42)
-                    .padding(.bottom, 4)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(minHeight: 48)
-    }
-}
-
-private struct SavedRow: View {
-    let camera: CamerasModel.Saved
-    @ObservedObject var model: CamerasModel
-    @State private var confirmRemove = false
-
-    var body: some View {
-        CameraRowLayout(title: camera.title, host: camera.host, isOpen: model.form == .edit(camera.url)) {
-            Button("Edit") { model.openEdit(camera) }
-                .disabled(model.busy)
-        } form: {
-            VStack(alignment: .leading, spacing: 10) {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Name").gridColumnAlignment(.trailing)
-                        TextField("", text: $model.name, prompt: Text(DeviceNames.get(camera.host) ?? "Nursery"))
-                    }
-                    if camera.quality != nil {
-                        GridRow {
-                            Text("Picture")
-                            Picker("", selection: $model.quality) {
-                                Text("High").tag(CamerasModel.Quality.high)
-                                Text("Low").tag(CamerasModel.Quality.low)
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                            .fixedSize()
-                        }
-                    }
-                    GridRow {
-                        Text("User")
-                        TextField("", text: $model.user, prompt: Text("admin"))
-                    }
-                    GridRow {
-                        Text("Password")
-                        SecureField("", text: $model.password, prompt: Text("Unchanged"))
-                    }
-                }
-                .textFieldStyle(.roundedBorder)
-                .disabled(model.busy)
-                FormButtons(model: model, primary: "Save", action: model.onSave, canSubmit: !model.user.isEmpty) {
-                    Button("Remove…", role: .destructive) { confirmRemove = true }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.red)
-                }
-            }
-            .confirmationDialog("Remove \(camera.title)?", isPresented: $confirmRemove) {
-                Button("Remove", role: .destructive, action: model.onRemove)
-            } message: {
-                Text("ReoBaby stops watching it and forgets its password.")
-            }
+            Spacer(minLength: 8)
+            trailing
         }
     }
 }
 
-private struct FoundRow: View {
-    let camera: CamerasModel.Found
+/// Adds a camera that discovery doesn't find, by its address.
+private struct AddressRow: View {
     @ObservedObject var model: CamerasModel
-    @FocusState private var focused: Bool
 
     var body: some View {
-        CameraRowLayout(title: camera.title, host: camera.host, isOpen: model.form == .add(camera.host)) {
-            Button("Add") { model.openAdd(camera.host, user: model.saved.first?.user ?? "admin") }
-                .disabled(model.busy)
-        } form: {
-            VStack(alignment: .leading, spacing: 10) {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("User").gridColumnAlignment(.trailing)
-                        TextField("", text: $model.user, prompt: Text("admin"))
-                    }
-                    GridRow {
-                        Text("Password")
-                        SecureField("", text: $model.password, prompt: Text("Set in the Reolink app"))
-                            .focused($focused)
-                    }
-                }
-                .textFieldStyle(.roundedBorder)
-                .disabled(model.busy)
-                FormButtons(model: model, primary: "Add Camera", action: model.onAdd,
-                            canSubmit: !model.user.isEmpty && !model.password.isEmpty) { EmptyView() }
-            }
-            // After the row has grown, or the address field keeps the focus.
-            .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focused = true } }
-            .onChange(of: model.error) { if model.error != nil { focused = true } }
+        HStack(spacing: 10) {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: 26 * 0.225, style: .continuous).fill(.quaternary))
+            TextField("Address", text: $model.address, prompt: Text("Add by address, like 10.0.0.52"))
+                .labelsHidden()
+                .textFieldStyle(.plain)
+                .onSubmit(model.onAddAddress)
+            Button("Add…", action: model.onAddAddress)
+                .disabled(model.address.trimmingCharacters(in: .whitespaces).isEmpty)
         }
-    }
-}
-
-/// Status or error on the left, Cancel and the form's action on the right.
-private struct FormButtons<Leading: View>: View {
-    @ObservedObject var model: CamerasModel
-    let primary: String
-    let action: () -> Void
-    let canSubmit: Bool
-    @ViewBuilder var leading: Leading
-
-    var body: some View {
-        HStack {
-            if model.busy {
-                ProgressView().controlSize(.small)
-                Text("Logging in…").foregroundStyle(.secondary)
-            } else if let error = model.error {
-                Text(error).foregroundStyle(.red)
-            } else {
-                leading
-            }
-            Spacer()
-            Button("Cancel") { model.form = nil }
-                .keyboardShortcut(.cancelAction)
-            Button(primary, action: action)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSubmit || model.busy)
-        }
-        .font(.callout)
     }
 }
 
 private struct BlockedRow: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("ReoBaby needs Local Network access to look for cameras.")
-            Button("Open Privacy Settings") {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title2)
+                .symbolRenderingMode(.multicolor)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Local Network access is off")
+                Text("ReoBaby needs it to look for cameras. You can still add one by its address.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Open Settings…") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+    }
+}
+
+/// Add… asks for a new camera's login; Details… changes a saved camera's name, picture or
+/// login, or removes it.
+private struct CameraSheet: View {
+    let form: CamerasModel.Form
+    @ObservedObject var model: CamerasModel
+    @State private var confirmRemove = false
+    @FocusState private var focus: Field?
+
+    private enum Field { case name, password }
+
+    private var isAdd: Bool {
+        if case .add = form { return true }
+        return false
+    }
+
+    private var saved: CamerasModel.Saved? {
+        guard case .edit(let url) = form else { return nil }
+        return model.saved.first { $0.url == url }
+    }
+
+    private var host: String {
+        switch form {
+        case .add(let host): host
+        case .edit(let url): saved?.host ?? url
+        }
+    }
+
+    private var title: String {
+        saved?.title ?? model.found.first { $0.host == host }?.title ?? "Reolink camera"
+    }
+
+    private var canSubmit: Bool {
+        let hasUser = !model.user.trimmingCharacters(in: .whitespaces).isEmpty
+        return isAdd ? hasUser && !model.password.isEmpty : hasUser
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                (isAdd ? IconTile.foundCamera : .camera).size(40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isAdd ? "Add \(title)" : title)
+                        .font(.headline)
+                    Text(host)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+
+            Form {
+                Section {
+                    if !isAdd {
+                        TextField("Name", text: $model.name, prompt: Text(DeviceNames.get(host) ?? "Nursery"))
+                            .focused($focus, equals: .name)
+                        if saved?.quality != nil {
+                            Picker("Picture", selection: $model.quality) {
+                                Text("High").tag(CamerasModel.Quality.high)
+                                Text("Low").tag(CamerasModel.Quality.low)
+                            }
+                            .pickerStyle(.segmented)
+                            .fixedSize()
+                        }
+                    }
+                    TextField("User", text: $model.user, prompt: Text("admin"))
+                    SecureField("Password", text: $model.password, prompt: Text(isAdd ? "Required" : "Unchanged"))
+                        .focused($focus, equals: .password)
+                } footer: {
+                    if isAdd {
+                        SectionNote("The user and password set up for this camera in the Reolink app.")
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+            .fixedSize(horizontal: false, vertical: true)
+            .disabled(model.busy)
+
+            HStack(spacing: 8) {
+                if model.busy {
+                    ProgressView().controlSize(.small)
+                    Text("Logging in…").foregroundStyle(.secondary)
+                } else if let error = model.error {
+                    Label(error, systemImage: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                } else if !isAdd {
+                    Button("Remove…", role: .destructive) { confirmRemove = true }
+                }
+                Spacer(minLength: 12)
+                Button("Cancel") { model.form = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button(isAdd ? "Add Camera" : "Save", action: isAdd ? model.onAdd : model.onSave)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSubmit || model.busy)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .frame(width: 420)
+        .defaultFocus($focus, isAdd ? .password : .name)
+        .onChange(of: model.error) { if model.error != nil { focus = .password } }
+        .confirmationDialog("Remove \(title)?", isPresented: $confirmRemove) {
+            Button("Remove", role: .destructive, action: model.onRemove)
+        } message: {
+            Text("ReoBaby stops watching it and forgets its password.")
+        }
     }
 }

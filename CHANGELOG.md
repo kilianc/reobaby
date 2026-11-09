@@ -3,6 +3,22 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
+## Unreleased
+
+- **Settings.** **Settings…** (⌘,), in the ReoBaby menu and the moon's menu,
+  has every setting in one window: General, Cameras, Notifications, Sound and
+  About. Changes apply right away. It replaces the Cameras window, and the
+  moon's Notify on Motion, Notify on Sound, Show in Dock and About ReoBaby.
+  Adding a camera or changing one opens a sheet, as Wi-Fi does.
+- **Open at login**, in Settings › General.
+- **Sound you can tune while you listen.** Settings › Sound has sliders for
+  noise reduction, boost and the compressor, and the sound already playing
+  changes with them. **Restore Defaults** puts them back.
+- **Updates in Settings.** Opening Settings checks for a new version and
+  downloads it. Settings › General shows where updates stand, with a badge on
+  ReoBaby's icon, lists what's new in the latest version, and links to this
+  changelog. **Restart to Update** there installs a downloaded update.
+
 ## 1.5.0 · 2026-11-08
 
 - **Clearer, louder sound.** Noise reduction turns steady background noise (a
