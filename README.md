@@ -29,11 +29,13 @@ app on my Mac, so I can keep an eye on my little dude while I work.
   every camera: no picture, no sound, no notifications until you resume. The
   moon shows a pause sign meanwhile, and ReoBaby always starts unpaused.
 - **No Camera.** Choose it from the camera list, or press 0, to close the
-  player while motion and sound notifications keep working. **Show Player**
-  opens it again on the last camera you watched.
+  player and disconnect from every camera, as Pause does. **Show Player** opens
+  it again on the last camera you watched.
 - **Notifications** for motion (including person, vehicle and animal on cameras
-  with AI detection) and for sound, each with a snapshot. Sound is measured on
-  your Mac from each camera's audio, after noise reduction, even while muted.
+  with AI detection) and for sound, each with a snapshot. They come from the
+  camera you've chosen, even with the player closed; ReoBaby doesn't connect to
+  your other cameras. Sound is measured on your Mac from the camera's audio,
+  after noise reduction, even while muted.
 - **Finds your cameras.** The Cameras window looks for Reolink cameras on your
   network, checks the login and adds them. No IP addresses to look up.
 - **Local only.** ReoBaby connects only to your cameras, and to GitHub to check

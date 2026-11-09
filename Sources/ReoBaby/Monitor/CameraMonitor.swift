@@ -1,7 +1,7 @@
 import CoreMedia
 import Foundation
 
-/// Watches one camera in the background, whether or not it is on screen:
+/// Watches the chosen camera in the background, even while the player is closed:
 /// motion/AI state from the camera's API, and loudness from an audio-only RTSP stream.
 final class CameraMonitor {
     enum Event {

@@ -12,6 +12,10 @@ What changed in each ReoBaby release. Every version is on the
   change them; see [Sound](README.md#sound).
 - **Sound notifications hear through background noise.** Sound is measured
   after noise reduction, so a cry over a white-noise machine is noticed.
+- **Only the chosen camera is connected.** ReoBaby used to stay connected to
+  every camera for notifications. Now notifications come from the camera you've
+  chosen, and ReoBaby doesn't connect to the others. **No Camera** disconnects
+  from every camera, as Pause does, and the moon shows the pause sign.
 
 ## 1.4.1 · 2026-11-07
 

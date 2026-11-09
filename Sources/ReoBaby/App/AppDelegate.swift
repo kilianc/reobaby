@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var player: CameraPlayer!
     private var cameras: [Camera] = []
     private var currentIndex = 0
-    /// `currentIndex` when No Camera is chosen: the player is closed, notifications go on.
+    /// `currentIndex` when No Camera is chosen: the player is closed and no camera is connected.
     /// The "camera" default keeps the last camera watched, for Show Player.
     private static let noCamera = -1
     private var loadedConfig: Data?
@@ -19,7 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var camerasWindow: CamerasController?
     private var offeredAddCameras = false
     private let alerts = Alerts()
-    private var monitors: [String: CameraMonitor] = [:]
+    /// Motion and sound notifications for the chosen camera, even while the player is closed.
+    private var monitor: CameraMonitor?
     private let defaults = UserDefaults.standard
 
     private var muted = true {
@@ -51,18 +52,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var paused = false {
         didSet {
             guard paused != oldValue else { return }
-            statusBar.setPaused(paused)
             if paused {
                 player.stop()
-                syncMonitors()
                 if !cameras.isEmpty { showPaused() }
             } else if cameras.isEmpty {
                 reloadCameras(force: true)
             } else {
-                fetchDeviceNames()
-                syncMonitors()
                 select(currentIndex)
             }
+            syncMonitor()
             refreshControls()
         }
     }
@@ -149,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationWillTerminate(_ notification: Notification) {
         player?.stop()
-        monitors.values.forEach { $0.stop() }
+        monitor?.stop()
         Updater.shared.installIfReady()
     }
 
@@ -172,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             loadedConfig = nil
             cameras = []
             player.stop()
+            syncMonitor()
             showNoCameras()
             return
         }
@@ -203,10 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let previous = currentCamera
         cameras = list
-        if !paused { fetchDeviceNames() }
-        syncMonitors()
         guard !list.isEmpty else {
             player.stop()
+            syncMonitor()
             showNoCameras()
             return
         }
@@ -218,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             select(index)
         } else {
             currentIndex = index
+            syncMonitor()
             refreshControls()
         }
     }
@@ -246,6 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         currentIndex = index
         defaults.set(index == Self.noCamera, forKey: "noCamera")
         if let camera = currentCamera { defaults.set(camera.url, forKey: "camera") }
+        syncMonitor()
         refreshControls()
         guard let camera = currentCamera else {
             player.stop()
@@ -275,43 +275,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         playerView.showStatus("Paused\nPress Space to resume")
     }
 
-    /// Fills in names for cameras that don't set one in cameras.json, from the camera itself.
-    private func fetchDeviceNames() {
-        for camera in cameras where camera.name == nil {
-            guard let host = camera.host, !namesRequested.contains(host),
-                  let ep = camera.endpoint(), let password = ep.password else { continue }
-            namesRequested.insert(host)
-            CameraAPI(host: host, user: ep.user ?? "admin", password: password).deviceName { [weak self] name in
-                guard let self else { return }
-                guard let name else {
-                    self.namesRequested.remove(host) // retry on a later trigger
-                    return
-                }
-                DeviceNames.set(name, host: host)
-                self.refreshControls()
+    /// Fills in the chosen camera's name from the camera itself, if cameras.json doesn't set one.
+    /// Other cameras keep the name they had when added or last watched: ReoBaby doesn't connect to them.
+    private func fetchDeviceName() {
+        guard let camera = currentCamera, camera.name == nil, let host = camera.host, !namesRequested.contains(host),
+              let ep = camera.endpoint(), let password = ep.password else { return }
+        namesRequested.insert(host)
+        CameraAPI(host: host, user: ep.user ?? "admin", password: password).deviceName { [weak self] name in
+            guard let self else { return }
+            guard let name else {
+                self.namesRequested.remove(host) // retry on a later trigger
+                return
             }
+            DeviceNames.set(name, host: host)
+            self.refreshControls()
         }
     }
 
-    /// One background monitor per camera with a known password; restarted when its settings change.
-    private func syncMonitors() {
-        var wanted: [String: (Camera, RTSPEndpoint)] = [:]
-        for camera in cameras where !paused {
-            if let ep = camera.endpoint(), ep.password != nil { wanted[camera.url] = (camera, ep) }
+    /// Notifications come from the chosen camera only: ReoBaby keeps no connection to the others,
+    /// and none at all with No Camera or while paused. Restarted when the camera's settings change.
+    private func syncMonitor() {
+        let camera = paused ? nil : currentCamera
+        let endpoint = camera?.endpoint().flatMap { $0.password == nil ? nil : $0 }
+        if let current = monitor, current.camera != camera || current.endpoint != endpoint {
+            current.stop()
+            monitor = nil
         }
-        for (url, monitor) in monitors where wanted[url].map({ $0.1 != monitor.endpoint || $0.0 != monitor.camera }) ?? true {
-            monitor.stop()
-            monitors[url] = nil
-        }
-        for (url, (camera, ep)) in wanted where monitors[url] == nil {
-            let monitor = CameraMonitor(camera: camera, endpoint: ep)
-            monitor.onEvent = { [weak self, weak monitor] event in
-                guard let self, let monitor else { return }
-                self.alerts.handle(event, from: monitor)
+        if monitor == nil, let camera, let endpoint {
+            let new = CameraMonitor(camera: camera, endpoint: endpoint)
+            new.onEvent = { [weak self, weak new] event in
+                guard let self, let new else { return }
+                self.alerts.handle(event, from: new)
             }
-            monitors[url] = monitor
-            monitor.start()
+            monitor = new
+            new.start()
         }
+        // Watching nothing looks like Pause on the moon, whichever way it came about.
+        statusBar.setPaused(paused || (camera == nil && !cameras.isEmpty))
     }
 
     private func openCamera(url: String) {
@@ -353,7 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             playerView.showStatus("Connecting to \(name)…")
         case .playing:
             playerView.showStatus(nil)
-            fetchDeviceNames()
+            fetchDeviceName()
         case .retrying(let message):
             playerView.showStatus("\(message)\nRetrying…")
         case .authFailed:
@@ -414,8 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
             }
             if currentIndex == index { select(index) }
-            fetchDeviceNames()
-            syncMonitors()
+            syncMonitor()
         }
     }
 
