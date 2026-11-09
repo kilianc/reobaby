@@ -1,9 +1,14 @@
 import Accelerate
 import AVFoundation
 import CoreMedia
+import os
 
-/// Camera sound settings: `defaults write com.kilianciuffolo.cam <key> -float <dB>`.
+/// Camera sound settings, set in Settings ▸ Sound (or `defaults write com.kilianciuffolo.cam <key> -float <dB>`).
 enum SoundSettings {
+    static let defaults: [String: Double] = [
+        "noiseReduction": 24, "audioBoost": 40, "compressorThreshold": -50, "compressorRatio": 2,
+    ]
+
     /// How far steady background noise (a fan, a white-noise machine, mic hiss) is turned down,
     /// for listening and for sound notifications. 0 turns noise reduction off.
     static var noiseReductionDB: Double { value("noiseReduction", default: 24) }
@@ -23,6 +28,22 @@ enum SoundSettings {
     private static func value(_ key: String, default value: Double) -> Double {
         UserDefaults.standard.object(forKey: key) == nil ? value : UserDefaults.standard.double(forKey: key)
     }
+
+    /// Changes whenever a sound setting does, so streams already playing pick it up.
+    static var revision: Int { state.withLock { $0.revision } }
+
+    private static let state = OSAllocatedUnfairLock(initialState: (revision: 0, values: [Double]()))
+
+    /// Call after any defaults change; bumps `revision` if a sound setting is among them.
+    static func refresh() {
+        let values = [noiseReductionDB, boostDB, thresholdDB, ratio]
+        state.withLock {
+            if $0.values != values {
+                $0.values = values
+                $0.revision += 1
+            }
+        }
+    }
 }
 
 /// Makes camera sound clearer and louder: noise reduction, then a compressor that raises quiet
@@ -39,26 +60,37 @@ final class AudioProcessor {
     private var framesIn = 0
     private var framesOut = 0
     private var output: (rate: Double, channels: Int, format: CMAudioFormatDescription)?
+    private var revision = -1
 
     init() { reset() }
 
     var isEnabled: Bool { reduction > 0 || compressor.makeupDB > 0 }
 
-    /// Called before each new stream; picks up changed settings.
+    /// Called before each new stream.
     func reset() {
         decoder.reset()
-        reduction = Float(max(SoundSettings.noiseReductionDB, 0))
+        applySettings()
         cleaner.reset(reductionDB: reduction)
-        compressor = Compressor(makeupDB: Float(max(SoundSettings.boostDB, 0)), thresholdDB: Float(SoundSettings.thresholdDB),
-                                ratio: Float(max(SoundSettings.ratio, 1)))
+        compressor.reset()
         limiter = Limiter()
         framesIn = 0
         framesOut = 0
     }
 
+    /// Takes up the current settings without starting over, so a change is heard right away.
+    private func applySettings() {
+        revision = SoundSettings.revision
+        reduction = Float(max(SoundSettings.noiseReductionDB, 0))
+        cleaner.reductionDB = reduction
+        compressor.makeupDB = Float(max(SoundSettings.boostDB, 0))
+        compressor.threshold = Float(SoundSettings.thresholdDB)
+        compressor.ratio = Float(max(SoundSettings.ratio, 1))
+    }
+
     /// The buffer processed, as float PCM. The buffer itself when processing is off or its format
     /// can't be decoded; nil when there is nothing to play yet.
     func process(_ sample: CMSampleBuffer) -> CMSampleBuffer? {
+        if revision != SoundSettings.revision { applySettings() }
         guard isEnabled else { return sample }
         guard let pcm = decoder.decode(sample) else { return decoder.canDecode ? nil : sample }
         guard !pcm.samples.isEmpty else { return nil }
@@ -119,7 +151,10 @@ final class AudioProcessor {
 /// Rumble filter plus noise suppression for every channel of a stream. The sound comes back
 /// `NoiseSuppressor`'s latency later, in whole hops, so a call can return fewer or no samples.
 final class NoiseCleaner {
-    private var reductionDB: Float = 24
+    /// How far noise is turned down; a change applies from the next frame on.
+    var reductionDB: Float = 24 {
+        didSet { suppressors.forEach { $0.reductionDB = reductionDB } }
+    }
     private var format: (rate: Double, channels: Int)?
     private var filters: [HighPass] = []
     private var suppressors: [NoiseSuppressor] = []
@@ -200,7 +235,7 @@ final class NoiseSuppressor {
     private let log2n: vDSP_Length
     private let setup: FFTSetup
     private let window: [Float]
-    private let minGain: Float
+    private var minGain: Float
     private let scale: Float
 
     private var input: [Float]
@@ -234,7 +269,7 @@ final class NoiseSuppressor {
         // Periodic sqrt-Hann for analysis and synthesis: the two multiply to a Hann window,
         // which sums to exactly 1 at half overlap.
         window = (0..<size).map { sqrtf(0.5 - 0.5 * cosf(2 * .pi * Float($0) / Float(size))) }
-        minGain = powf(10, -max(reductionDB, 0) / 20)
+        minGain = Self.gain(reductionDB)
         // vDSP's real FFT scales by 2 going forward and by n coming back.
         scale = 1 / Float(2 * size)
 
@@ -253,6 +288,12 @@ final class NoiseSuppressor {
         let framesPerSecond = sampleRate / Double(size / 2)
         framesPerWindow = max(1, Int(Self.memory * framesPerSecond) / Self.windows)
     }
+
+    var reductionDB: Float = 0 {
+        didSet { minGain = Self.gain(reductionDB) }
+    }
+
+    private static func gain(_ reductionDB: Float) -> Float { powf(10, -max(reductionDB, 0) / 20) }
 
     deinit {
         vDSP_destroy_fftsetup(setup)
@@ -346,9 +387,9 @@ final class NoiseSuppressor {
 /// Raises quiet sounds by `makeupDB` and loud ones by less: above `threshold`, every `ratio` dB
 /// louder in is only 1 dB louder out.
 struct Compressor {
-    let makeupDB: Float
-    private let threshold: Float
-    private let ratio: Float
+    var makeupDB: Float
+    var threshold: Float
+    var ratio: Float
     private let knee: Float = 10
     private var envelope: Float = 0
     private var coefficients: (rate: Double, attack: Float, release: Float)?
@@ -357,6 +398,10 @@ struct Compressor {
         self.makeupDB = makeupDB
         threshold = thresholdDB
         self.ratio = ratio
+    }
+
+    mutating func reset() {
+        envelope = 0
     }
 
     mutating func process(_ pcm: inout AudioDecoder.PCM) {

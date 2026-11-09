@@ -5,7 +5,7 @@ import Security
 /// background and installed when ReoBaby quits, or right away with "Restart to Update".
 /// It is installed only if it's signed by the same developer as the running copy.
 @MainActor
-final class Updater {
+final class Updater: ObservableObject {
     static let shared = Updater()
 
     enum State: Equatable {
@@ -14,7 +14,7 @@ final class Updater {
         case ready(version: String, app: URL)
     }
 
-    private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle
     private var timer: Timer?
     private var relaunch = false
 
@@ -24,6 +24,7 @@ final class Updater {
         ?? URL(string: "https://api.github.com/repos/kilianc/reobaby/releases/latest")!
 
     static let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    static let currentBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
 
     private var automatic: Bool {
         UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true
@@ -41,6 +42,31 @@ final class Updater {
 
     var menuEnabled: Bool { state != .busy }
 
+    // MARK: - Settings
+
+    var settingsButtonTitle: String {
+        if case .ready = state { return "Restart to Update" }
+        return "Check Now"
+    }
+
+    var settingsStatus: String {
+        switch state {
+        case .idle: Self.blocker ?? "Updates come from ReoBaby's releases on GitHub."
+        case .busy: "Checking for updates…"
+        case .ready(let version, _): "ReoBaby \(version) is downloaded and installs when ReoBaby quits."
+        }
+    }
+
+    /// Settings ▸ General ▸ Check for updates automatically.
+    func setAutomatic(_ on: Bool) {
+        if on {
+            start()
+        } else {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+
     func menuAction() {
         if case .ready = state {
             restartToUpdate()
@@ -53,7 +79,7 @@ final class Updater {
 
     /// Checks shortly after launch, then every six hours.
     func start() {
-        guard automatic, Self.blocker == nil else { return }
+        guard automatic, Self.blocker == nil, timer == nil else { return }
         Task {
             try? await Task.sleep(for: .seconds(30))
             await check(interactive: false)

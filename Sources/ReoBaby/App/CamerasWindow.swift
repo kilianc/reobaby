@@ -1,62 +1,40 @@
 import AppKit
 import SwiftUI
 
-/// Cameras… (⌘,): the cameras ReoBaby watches, and the Reolink cameras on the network it could.
+/// Settings ▸ Cameras: the cameras saved in ReoBaby, and the Reolink cameras on the network it could add.
 /// A new camera is added the way Wi-Fi joins a network: its row opens a login form, ReoBaby logs
 /// in to check it, then the camera goes into cameras.json and its password into the login keychain.
 /// A saved camera's row opens a form to rename it, change its picture or login, or remove it.
-final class CamerasController: NSObject, NSWindowDelegate {
+final class CamerasController {
     /// cameras.json changed.
     var onChange: (() -> Void)?
-    /// The panel closed; the URLs of the cameras added meanwhile (possibly none).
-    var onFinish: (([String]) -> Void)?
     /// "Open cameras.json".
     var onOpenFile: (() -> Void)?
 
-    private let model = CamerasModel()
-    private let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 400),
-                                styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+    let model = CamerasModel()
     private var discovered: [String] = []
     private var added: [String] = []
 
-    override init() {
-        super.init()
+    init() {
         model.onSearch = { [weak self] in self?.search() }
         model.onAdd = { [weak self] in self?.add() }
         model.onSave = { [weak self] in self?.save() }
         model.onRemove = { [weak self] in self?.remove() }
         model.onAddAddress = { [weak self] in self?.addAddress() }
-        model.onDone = { [weak self] in self?.panel.close() }
         model.onOpenFile = { [weak self] in self?.onOpenFile?() }
-
-        let host = NSHostingController(rootView: CamerasView(model: model))
-        host.sizingOptions = [.preferredContentSize]
-        panel.contentViewController = host
-        panel.title = "Cameras"
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
-        panel.delegate = self
-        panel.isReleasedWhenClosed = false
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
     }
 
-    func show() {
-        if !panel.isVisible {
-            reloadSaved()
-            panel.center()
-            search()
-        }
-        NSApp.activate()
-        panel.makeKeyAndOrderFront(nil)
+    /// The pane is on screen: shows the saved cameras and looks for new ones on the network.
+    func appear() {
+        reloadSaved()
+        if !model.searching { search() }
     }
 
-    func windowWillClose(_ notification: Notification) {
-        let added = added
-        DispatchQueue.main.async { self.onFinish?(added) }
+    /// Settings closed: closes any open form and returns the URLs of the cameras added meanwhile.
+    func finish() -> [String] {
+        defer { added = [] }
+        model.form = nil
+        return added
     }
 
     // MARK: - Lists
@@ -276,7 +254,6 @@ final class CamerasModel: ObservableObject {
     var onSave: () -> Void = {}
     var onRemove: () -> Void = {}
     var onAddAddress: () -> Void = {}
-    var onDone: () -> Void = {}
     var onOpenFile: () -> Void = {}
 
     func openAdd(_ host: String, user: String) {
@@ -294,17 +271,6 @@ final class CamerasModel: ObservableObject {
         password = ""
         error = nil
     }
-
-    var subtitle: String {
-        if searching && found.isEmpty { return "Looking for cameras on your network…" }
-        switch found.count {
-        case 1: return "Found a new camera on your network."
-        case 2...: return "Found \(found.count) new cameras on your network."
-        default: break
-        }
-        if saved.isEmpty { return blocked ? "macOS is keeping ReoBaby off your network." : "No Reolink cameras found on your network." }
-        return saved.count == 1 ? "Watching 1 camera." : "Watching \(saved.count) cameras."
-    }
 }
 
 // MARK: - Views
@@ -313,18 +279,7 @@ struct CamerasView: View {
     @ObservedObject var model: CamerasModel
 
     var body: some View {
-        VStack(spacing: 18) {
-            VStack(spacing: 6) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 64, height: 64)
-                Text("Cameras")
-                    .font(.title2.weight(.semibold))
-                Text(model.subtitle)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
+        PaneStack {
             if let fileError = model.fileError {
                 Text(fileError)
                     .foregroundStyle(.red)
@@ -387,23 +342,16 @@ struct CamerasView: View {
                 Button("Open cameras.json", action: model.onOpenFile)
                     .buttonStyle(.link)
                     .font(.callout)
+                    .help("For what this pane doesn't cover")
                 Spacer()
-                Button("Done", action: model.onDone)
-                    .keyboardShortcut(model.form == nil ? .defaultAction : nil)
-                    .controlSize(.large)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 18)
-        .padding(.bottom, 22)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
         .animation(.easeOut(duration: 0.18), value: model.form)
     }
 }
 
 /// A rounded group of rows, like System Settings.
-private struct GroupedSection<Header: View, Content: View, Footer: View>: View {
+struct GroupedSection<Header: View, Content: View, Footer: View>: View {
     let header: Header
     let content: Content
     let footer: Footer
