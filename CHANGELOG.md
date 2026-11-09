@@ -3,7 +3,7 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
-## Unreleased
+## 1.5.0 · 2026-11-08
 
 - **Clearer, louder sound.** Noise reduction turns steady background noise (a
   fan, a white-noise machine, microphone hiss) down by 24 dB, and a compressor
