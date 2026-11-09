@@ -13,9 +13,6 @@ final class CameraPlayer {
 
     /// Jitter buffer: how far behind arrival time playback runs.
     static let latency = 0.4
-    /// Seamless audio may run up to this much further ahead than `latency` before it's
-    /// brought back to the camera's timestamps.
-    static let audioSlack = 0.2
 
     var onState: ((State) -> Void)?
     var onVideoSize: ((CGSize) -> Void)?
@@ -38,12 +35,6 @@ final class CameraPlayer {
     private var audioTimeline = RTPTimeline(clockRate: 8000)
     private var videoOrigin: (rtp: Int64, host: CMTime)?
     private var audioOrigin: (rtp: Int64, host: CMTime)?
-    /// Where the next audio buffer starts when it follows on seamlessly.
-    private var audioNext: CMTime?
-    /// For `--probe`: times audio jumped to the camera's timestamps, and the largest difference
-    /// from them it played through.
-    private(set) var audioResyncs = 0
-    private(set) var audioLargestSmoothed = 0.0
     private var drift = CMTime.zero
     private var started = false
     private var connectedAt = CFAbsoluteTimeGetCurrent()
@@ -94,7 +85,6 @@ final class CameraPlayer {
         audio = nil
         videoOrigin = nil
         audioOrigin = nil
-        audioNext = nil
         drift = .zero
         started = false
         windowStart = nil
@@ -170,7 +160,6 @@ final class CameraPlayer {
             for au in video.push(packet) { deliver(au, from: video) }
         } else if track == audioTrack, let audio {
             if let sample = audio.push(packet, pts: audioPTS) {
-                audioNext = sample.audioDuration.map { CMSampleBufferGetPresentationTimeStamp(sample) + $0 }
                 if video == nil && !started { begin() }
                 sink.enqueueAudio(sample)
             }
@@ -219,25 +208,12 @@ final class CameraPlayer {
         }
     }
 
-    /// Cameras stamp audio with when they captured it, give or take tens of milliseconds
-    /// (Reolinks by up to ±60 ms per 64 ms buffer). Played as stamped, that opens gaps and
-    /// overlaps, and the sound comes out choppy. So each buffer follows on from the last for
-    /// as long as it still arrives in time to play and the delay doesn't pile up. That also
-    /// rides out `drift` moving to keep up with late video, which would otherwise cut or
-    /// silence a few hundred milliseconds of sound each time.
+    /// When the camera says a buffer of sound was captured, on the picture's clock. The stamps
+    /// jitter; `AudioTimeline` plays the sound seamlessly and in step with the picture anyway.
     private func audioPTS(_ timestamp: UInt32) -> CMTime {
         let rtp = audioTimeline.unwrap(timestamp)
         if audioOrigin == nil { audioOrigin = (rtp, hostNow()) }
-        let stamped = audioOrigin!.host + CMTime(value: rtp - audioOrigin!.rtp, timescale: audioTimeline.clockRate) + drift
-        guard let next = audioNext else { return stamped }
-        // A sample stamped t plays at host time t + latency (see `RendererSink.start`).
-        let untilPlayed = (next - hostNow()).seconds + Self.latency
-        guard untilPlayed > 0.03, untilPlayed < Self.latency + Self.audioSlack else {
-            audioResyncs += 1
-            return stamped
-        }
-        audioLargestSmoothed = max(audioLargestSmoothed, abs((stamped - next).seconds))
-        return next
+        return audioOrigin!.host + CMTime(value: rtp - audioOrigin!.rtp, timescale: audioTimeline.clockRate) + drift
     }
 
     private func begin() {

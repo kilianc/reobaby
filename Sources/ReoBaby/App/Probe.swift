@@ -206,9 +206,9 @@ enum Probe {
         video: \(s.frames) frames (\(s.keyframes) key, ~\(String(format: "%.1f", fps)) fps), decoded \(s.decoded), decode errors \(s.errors)\(s.lastError == 0 ? "" : " (last OSStatus \(s.lastError))")
         audio: \(s.audioBuffers) buffers, renderer status \(sink.audio.status.rawValue)\(sink.audio.error.map { " error: \($0)" } ?? "")
         sound: \(s.levels)
-        audio timing, before processing: \(s.timingIn.summary)
-        audio timing, after processing:  \(s.timingOut.summary)
-        audio re-synced to the camera's clock \(player.audioResyncs) times; largest jitter smoothed over \(Int(player.audioLargestSmoothed * 1000)) ms
+        audio timing, as stamped: \(s.timingIn.summary)
+        audio timing, as played:  \(s.timingOut.summary)
+        sound and picture: \(s.sync.summary)
         """)
         if let password = endpoint.password {
             final class Box { var done = false; var name: String? }
@@ -233,6 +233,7 @@ private final class ProbeSink: MediaSink {
         var outPeak: Float = 0
         var lastError: OSStatus = 0
         var timingIn = Timing(), timingOut = Timing()
+        var sync = AudioTimeline.Stats()
     }
 
     /// Whether buffers follow each other seamlessly, and arrive in time to play.
@@ -332,6 +333,8 @@ private final class ProbeSink: MediaSink {
         let now = synchronizer.rate > 0 ? synchronizer.currentTime() : .invalid
         update { $0.audioBuffers += 1; $0.timingIn.add(sample, now: now) }
         let processed = processor.process(sample)
+        let sync = processor.sync
+        update { $0.sync = sync }
         if let processed {
             update { $0.timingOut.add(processed, now: now) }
             audio.enqueue(processed)
@@ -350,6 +353,15 @@ private final class ProbeSink: MediaSink {
 
     var videoFailed: Bool { false }
     func flushVideo() {}
+}
+
+private extension AudioTimeline.Stats {
+    var summary: String {
+        String(format: "apart by %.0f ms on average, at most %.0f ms (%.0f ms without catching up), more than 45 ms for %.1f s; "
+               + "%d splices (%.0f ms); %d jumps back to the stamps",
+               apartSum / max(seconds, 1e-9) * 1000, worstApart * 1000, worstUncorrected * 1000, apartSeconds,
+               splices, spliced * 1000, resyncs)
+    }
 }
 
 private extension ProbeSink.Stats {

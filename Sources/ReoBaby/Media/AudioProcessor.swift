@@ -43,36 +43,48 @@ final class AudioProcessor {
     private var framesIn = 0
     private var framesOut = 0
     private var output: (rate: Double, channels: Int, format: CMAudioFormatDescription)?
+    private var timeline = AudioTimeline(latency: CameraPlayer.latency)
 
     init() { reset() }
 
-    var isEnabled: Bool { reduction > 0 || compressor.makeupDB > 0 }
+    /// For `--probe`: how well sound kept in step with the picture.
+    var sync: AudioTimeline.Stats { timeline.stats }
 
     /// Called before each new stream; picks up changed settings.
     func reset() {
         decoder.reset()
         reduction = Float(max(SoundSettings.noiseReductionDB, 0))
         cleaner.reset(reductionDB: reduction)
-        compressor = Compressor(makeupDB: Float(max(SoundSettings.boostDB, 0)), thresholdDB: Float(SoundSettings.thresholdDB),
-                                ratio: Float(max(SoundSettings.ratio, 1)))
+        // With no boost the compressor still runs, at unity gain, to tell quiet moments apart.
+        let boost = Float(max(SoundSettings.boostDB, 0))
+        compressor = boost > 0
+            ? Compressor(makeupDB: boost, thresholdDB: Float(SoundSettings.thresholdDB), ratio: Float(max(SoundSettings.ratio, 1)))
+            : Compressor(makeupDB: 0, thresholdDB: 0, ratio: 1)
         limiter = Limiter()
+        timeline.reset()
         framesIn = 0
         framesOut = 0
     }
 
-    /// The buffer processed, as float PCM. The buffer itself when processing is off or its format
-    /// can't be decoded; nil when there is nothing to play yet.
+    /// The buffer processed, as float PCM, timed to play seamlessly after the last one (see
+    /// `AudioTimeline`). The buffer itself, as stamped, when its format can't be decoded; nil
+    /// when there is nothing to play yet.
     func process(_ sample: CMSampleBuffer) -> CMSampleBuffer? {
-        guard isEnabled else { return sample }
         guard let pcm = decoder.decode(sample) else { return decoder.canDecode ? nil : sample }
         guard !pcm.samples.isEmpty else { return nil }
         let first = framesIn
-        let out = process(pcm)
+        var out = process(pcm)
         guard !out.samples.isEmpty else { return nil }
         // The output starts `framesIn - framesOut` frames before this buffer's first frame.
-        let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+        let stamped = CMSampleBufferGetPresentationTimeStamp(sample)
             + CMTime(value: Int64(framesOut - first), timescale: CMTimeScale(pcm.sampleRate))
-        framesOut += out.samples.count / out.channels
+        let frames = out.samples.count / out.channels
+        framesOut += frames
+        // Catch up with the picture only while nothing but the background is heard.
+        let quiet = compressor.quiet
+        let pts = timeline.place(stamped: stamped, frames: frames, rate: out.sampleRate) { wanted in
+            quiet ? Splice.apply(&out, wanted: wanted) : 0
+        }
         return makeBuffer(out, pts: pts)
     }
 
@@ -95,10 +107,8 @@ final class AudioProcessor {
                 out.samples[i] = tone!.high.process(tone!.low.process(out.samples[i]))
             }
         }
-        if compressor.makeupDB > 0 {
-            compressor.process(&out)
-            limiter.process(&out)
-        }
+        compressor.process(&out)
+        if compressor.makeupDB > 0 { limiter.process(&out) }
         return out
     }
 
@@ -449,6 +459,8 @@ struct Compressor {
     /// fades in from silence as noise reduction starts, and starting low would leave the
     /// background rising for many seconds.
     private var settling: Int?
+    /// Whether the last buffer held nothing but the background.
+    private(set) var quiet = true
     private var coefficients: (rate: Double, attack: Float, release: Float,
                                steadyAttack: Float, steadyRelease: Float, fall: Float, rise: Float)?
 
@@ -475,6 +487,7 @@ struct Compressor {
             floor = 10 * log10f(envelope + 1e-12)
             settling = Int(pcm.sampleRate)
         }
+        var loudest = -Float.infinity
         var i = 0
         while i < pcm.samples.count {
             var square: Float = 0
@@ -494,10 +507,12 @@ struct Compressor {
                 background = steadyLevel < background ? background + (steadyLevel - background) * fall : background + rise
             }
             floor = background
+            loudest = max(loudest, steadyLevel - background)
             let gain = powf(10, (makeupDB + reduction(level) - heldBack(steadyLevel - background)) / 20)
             for c in 0..<channels { pcm.samples[i + c] *= gain }
             i += channels
         }
+        quiet = loudest < closed + 2
     }
 
     /// Boost held back from sound `over` dB above the background; never more than the boost,

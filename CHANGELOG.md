@@ -5,9 +5,11 @@ What changed in each ReoBaby release. Every version is on the
 
 ## Unreleased
 
-- **Smooth sound.** Reolink cameras stamp their sound with uneven times, up to
-  60 ms off, and ReoBaby played it as stamped, with tiny gaps and overlaps that
-  made it choppy. Sound now plays seamlessly.
+- **Smooth sound, in step with the picture.** Reolink cameras stamp their
+  sound with uneven times, up to 60 ms off, and ReoBaby played it as stamped,
+  with tiny gaps and overlaps that made it choppy. Sound now plays seamlessly.
+  When the picture has to wait out a slow network, the sound catches up during
+  quiet moments, a few milliseconds at a time, instead of skipping.
 - **A quiet background.** The boost no longer raises what's left of the
   background noise, so the room sounds as quiet as the camera hears it while a
   cry still comes up by 40 dB. Noise reduction also works from the first
