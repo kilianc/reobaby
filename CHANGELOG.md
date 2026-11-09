@@ -3,6 +3,17 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
+## Unreleased
+
+- **Smooth sound.** Reolink cameras stamp their sound with uneven times, up to
+  60 ms off, and ReoBaby played it as stamped, with tiny gaps and overlaps that
+  made it choppy. Sound now plays seamlessly.
+- **A quiet background.** The boost no longer raises what's left of the
+  background noise, so the room sounds as quiet as the camera hears it while a
+  cry still comes up by 40 dB. Noise reduction also works from the first
+  second, instead of letting loud noise through for a few seconds every time
+  ReoBaby connects.
+
 ## 1.5.0 · 2026-11-08
 
 - **Clearer, louder sound.** Noise reduction turns steady background noise (a

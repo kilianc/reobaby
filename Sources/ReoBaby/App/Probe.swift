@@ -206,6 +206,9 @@ enum Probe {
         video: \(s.frames) frames (\(s.keyframes) key, ~\(String(format: "%.1f", fps)) fps), decoded \(s.decoded), decode errors \(s.errors)\(s.lastError == 0 ? "" : " (last OSStatus \(s.lastError))")
         audio: \(s.audioBuffers) buffers, renderer status \(sink.audio.status.rawValue)\(sink.audio.error.map { " error: \($0)" } ?? "")
         sound: \(s.levels)
+        audio timing, before processing: \(s.timingIn.summary)
+        audio timing, after processing:  \(s.timingOut.summary)
+        audio re-synced to the camera's clock \(player.audioResyncs) times; largest jitter smoothed over \(Int(player.audioLargestSmoothed * 1000)) ms
         """)
         if let password = endpoint.password {
             final class Box { var done = false; var name: String? }
@@ -229,6 +232,34 @@ private final class ProbeSink: MediaSink {
         var heard = LevelLog(), processed = LevelLog()
         var outPeak: Float = 0
         var lastError: OSStatus = 0
+        var timingIn = Timing(), timingOut = Timing()
+    }
+
+    /// Whether buffers follow each other seamlessly, and arrive in time to play.
+    struct Timing {
+        var buffers = 0, gaps = 0, overlaps = 0, late = 0
+        var gapSeconds = 0.0, overlapSeconds = 0.0, worstLate = 0.0
+        private var end: CMTime?
+
+        mutating func add(_ sample: CMSampleBuffer, now: CMTime) {
+            let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+            guard let duration = sample.audioDuration else { return }
+            buffers += 1
+            if let end {
+                let step = (pts - end).seconds
+                if step > 0.002 { gaps += 1; gapSeconds += step }
+                if step < -0.002 { overlaps += 1; overlapSeconds -= step }
+            }
+            end = pts + duration
+            // Already behind the clock: the renderer can't play it on time.
+            let lateBy = (now - pts).seconds
+            if now.isValid, lateBy > 0 { late += 1; worstLate = max(worstLate, lateBy) }
+        }
+
+        var summary: String {
+            String(format: "%d buffers, %d gaps (%.0f ms), %d overlaps (%.0f ms), %d late (worst %.0f ms)",
+                   buffers, gaps, gapSeconds * 1000, overlaps, overlapSeconds * 1000, late, worstLate * 1000)
+        }
     }
 
     let audio = AVSampleBufferAudioRenderer()
@@ -298,9 +329,13 @@ private final class ProbeSink: MediaSink {
     }
 
     func enqueueAudio(_ sample: CMSampleBuffer) {
-        update { $0.audioBuffers += 1 }
+        let now = synchronizer.rate > 0 ? synchronizer.currentTime() : .invalid
+        update { $0.audioBuffers += 1; $0.timingIn.add(sample, now: now) }
         let processed = processor.process(sample)
-        if let processed { audio.enqueue(processed) }
+        if let processed {
+            update { $0.timingOut.add(processed, now: now) }
+            audio.enqueue(processed)
+        }
         // Levels before and after processing, as you would hear them.
         if let before = inDecoder.decode(sample), !before.samples.isEmpty {
             update { $0.heard.add(before) }

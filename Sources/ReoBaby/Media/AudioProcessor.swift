@@ -220,7 +220,9 @@ final class NoiseSuppressor {
     private var minimaNext = 0
     private var framesPerWindow: Int
     private var framesInWindow = 0
-    private var started = false
+    /// Frames averaged into the first noise estimate, and how many so far.
+    private let warmup: Int
+    private var warmed = 0
 
     init(sampleRate: Double, reductionDB: Float) {
         // About 32 ms: 256 samples at 8 kHz, 512 at 16 kHz, 1024 at 32 kHz.
@@ -252,6 +254,7 @@ final class NoiseSuppressor {
         minima = [Float](repeating: .greatestFiniteMagnitude, count: bins * Self.windows)
         let framesPerSecond = sampleRate / Double(size / 2)
         framesPerWindow = max(1, Int(Self.memory * framesPerSecond) / Self.windows)
+        warmup = max(1, Int(0.5 * framesPerSecond))
     }
 
     deinit {
@@ -317,10 +320,20 @@ final class NoiseSuppressor {
     }
 
     /// Minimum statistics: a smoothed spectrum, and its minimum over the last `memory` seconds.
+    ///
+    /// The first half second is averaged instead. A single frame's spectrum is ragged (any band
+    /// can dip far below its noise), and a minimum taken from it would hold the noise estimate
+    /// far too low for the whole look-back, letting most of the noise through for seconds after
+    /// every connect.
     private func trackNoise() {
-        if !started {
-            smoothed = power
-            started = true
+        if warmed < warmup {
+            warmed += 1
+            for k in 0..<bins {
+                smoothed[k] += (power[k] - smoothed[k]) / Float(warmed)
+                noise[k] = smoothed[k]
+            }
+            if warmed == warmup { minimum = smoothed }
+            return
         }
         for k in 0..<bins {
             smoothed[k] = 0.8 * smoothed[k] + 0.2 * power[k]
@@ -345,13 +358,31 @@ final class NoiseSuppressor {
 
 /// Raises quiet sounds by `makeupDB` and loud ones by less: above `threshold`, every `ratio` dB
 /// louder in is only 1 dB louder out.
+///
+/// What's left of the background after noise reduction isn't raised: sound within a few dB of
+/// the quietest the room has been recently gets up to `expansion` dB less boost (a downward
+/// expander), so the room stays as quiet as the camera hears it while sounds come up clearly.
 struct Compressor {
     let makeupDB: Float
     private let threshold: Float
     private let ratio: Float
     private let knee: Float = 10
+    /// Boost held back from the background, and how far above it sound gets the full boost.
+    private let expansion: Float = 20
+    private let closed: Float = 6, open: Float = 14
     private var envelope: Float = 0
-    private var coefficients: (rate: Double, attack: Float, release: Float)?
+    /// A slower envelope (20 ms attack, 800 ms release) that decides how much boost to hold back.
+    /// Steady noise barely moves it, so the background doesn't pump; a sound lifts it at once.
+    private var steady: Float = 0
+    /// The room's background level after noise reduction, in dBFS: follows `steady` down within
+    /// a second, and up by only 0.5 dB a second so a long cry doesn't become the new background.
+    private var floor: Float?
+    /// Samples left in the first second, when the background just follows `steady`: sound
+    /// fades in from silence as noise reduction starts, and starting low would leave the
+    /// background rising for many seconds.
+    private var settling: Int?
+    private var coefficients: (rate: Double, attack: Float, release: Float,
+                               steadyAttack: Float, steadyRelease: Float, fall: Float, rise: Float)?
 
     init(makeupDB: Float, thresholdDB: Float, ratio: Float) {
         self.makeupDB = makeupDB
@@ -362,11 +393,20 @@ struct Compressor {
     mutating func process(_ pcm: inout AudioDecoder.PCM) {
         if coefficients?.rate != pcm.sampleRate {
             // 10 ms attack, 300 ms release.
-            coefficients = (pcm.sampleRate, expf(-1 / (0.010 * Float(pcm.sampleRate))),
-                            expf(-1 / (0.300 * Float(pcm.sampleRate))))
+            let rate = Float(pcm.sampleRate)
+            coefficients = (pcm.sampleRate, expf(-1 / (0.010 * rate)), expf(-1 / (0.300 * rate)),
+                            expf(-1 / (0.020 * rate)), expf(-1 / (0.800 * rate)),
+                            1 - expf(-1 / (1.0 * rate)), 0.5 / rate)
         }
-        guard let (_, attack, release) = coefficients else { return }
+        guard let (_, attack, release, steadyAttack, steadyRelease, fall, rise) = coefficients else { return }
         let channels = pcm.channels
+        // Start from the first buffer's level, not silence.
+        if floor == nil, !pcm.samples.isEmpty {
+            envelope = pcm.meanSquare
+            steady = envelope
+            floor = 10 * log10f(envelope + 1e-12)
+            settling = Int(pcm.sampleRate)
+        }
         var i = 0
         while i < pcm.samples.count {
             var square: Float = 0
@@ -374,10 +414,31 @@ struct Compressor {
             square /= Float(channels)
             let a = square > envelope ? attack : release
             envelope = a * envelope + (1 - a) * square
-            let gain = powf(10, (makeupDB + reduction(10 * log10f(envelope + 1e-12))) / 20)
+            let s = square > steady ? steadyAttack : steadyRelease
+            steady = s * steady + (1 - s) * square
+            let level = 10 * log10f(envelope + 1e-12)
+            let steadyLevel = 10 * log10f(steady + 1e-12)
+            var background = floor ?? steadyLevel
+            if let left = settling, left > 0 {
+                background = steadyLevel
+                settling = left - 1
+            } else {
+                background = steadyLevel < background ? background + (steadyLevel - background) * fall : background + rise
+            }
+            floor = background
+            let gain = powf(10, (makeupDB + reduction(level) - heldBack(steadyLevel - background)) / 20)
             for c in 0..<channels { pcm.samples[i + c] *= gain }
             i += channels
         }
+    }
+
+    /// Boost held back from sound `over` dB above the background; never more than the boost,
+    /// so the room is never made quieter than the camera hears it.
+    private func heldBack(_ over: Float) -> Float {
+        let most = min(expansion, makeupDB)
+        if over >= open { return 0 }
+        if over <= closed { return most }
+        return most * (open - over) / (open - closed)
     }
 
     /// Gain change in dB for a level, with a soft knee.

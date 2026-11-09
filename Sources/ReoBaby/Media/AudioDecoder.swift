@@ -1,4 +1,14 @@
 import AVFoundation
+
+extension CMSampleBuffer {
+    /// How long an audio buffer plays: its packets times the frames in each (1024 for AAC).
+    var audioDuration: CMTime? {
+        guard let asbd = CMSampleBufferGetFormatDescription(self)
+                .flatMap(CMAudioFormatDescriptionGetStreamBasicDescription)?.pointee, asbd.mSampleRate > 0 else { return nil }
+        let frames = Int64(CMSampleBufferGetNumSamples(self)) * Int64(max(asbd.mFramesPerPacket, 1))
+        return CMTime(value: frames, timescale: CMTimeScale(asbd.mSampleRate))
+    }
+}
 import CoreMedia
 
 /// Decodes camera audio (AAC, or 16-bit or float PCM) to interleaved Float32 samples.

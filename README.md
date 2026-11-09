@@ -136,7 +136,8 @@ before you hear it:
    voice, pass through. A sound that never changes, like a constant tone, fades
    into the background after a few seconds.
 2. **Compression** raises quiet sounds by 40 dB and loud ones by less, so a
-   whimper is easy to hear and a scream isn't deafening.
+   whimper is easy to hear and a scream isn't deafening. What's left of the
+   background isn't raised, so the room sounds as quiet as the camera hears it.
 3. **A limiter** holds the peaks under full scale, so nothing distorts.
 
 Sound notifications use the same noise reduction, so a cry stands out even over
