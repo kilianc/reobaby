@@ -132,16 +132,18 @@ white-noise machine, the microphone's own hiss. ReoBaby cleans up camera sound
 before you hear it:
 
 1. **Noise reduction** learns the steady background from the last few seconds
-   and turns it down by 24 dB. Sounds that come and go, like a cry, a cough or a
-   voice, pass through. A sound that never changes, like a constant tone, fades
-   into the background after a few seconds.
+   and turns it down by 12 dB, gently enough that voices don't sound metallic.
+   Sounds that come and go, like a cry, a cough or a voice, pass through. A
+   sound that never changes, like a constant tone, fades into the background
+   after a few seconds. A gentle tone correction puts back the warmth noise
+   reduction takes out.
 2. **Compression** raises quiet sounds by 40 dB and loud ones by less, so a
    whimper is easy to hear and a scream isn't deafening. What's left of the
    background isn't raised, so the room sounds as quiet as the camera hears it.
 3. **A limiter** holds the peaks under full scale, so nothing distorts.
 
-Sound notifications use the same noise reduction, so a cry stands out even over
-a white-noise machine. The volume slider works on top of all this.
+Sound notifications listen through stronger noise reduction (24 dB), so a cry
+stands out even over a white-noise machine. The volume slider works on top of all this.
 
 To change a step, in dB (0 turns it off), then quit and reopen ReoBaby:
 

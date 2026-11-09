@@ -9,7 +9,7 @@ final class AudioLevelMeter {
     private let reducesNoise: Bool
 
     init() {
-        let reduction = Float(max(SoundSettings.noiseReductionDB, 0))
+        let reduction = Float(max(SoundSettings.detectionReductionDB, 0))
         reducesNoise = reduction > 0
         cleaner.reset(reductionDB: reduction)
     }

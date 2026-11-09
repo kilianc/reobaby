@@ -4,9 +4,13 @@ import CoreMedia
 
 /// Camera sound settings: `defaults write com.kilianciuffolo.cam <key> -float <dB>`.
 enum SoundSettings {
-    /// How far steady background noise (a fan, a white-noise machine, mic hiss) is turned down,
-    /// for listening and for sound notifications. 0 turns noise reduction off.
-    static var noiseReductionDB: Double { value("noiseReduction", default: 24) }
+    /// How far steady background noise (a fan, a white-noise machine, mic hiss) is turned down
+    /// for listening. Gentle, because more starts to sound metallic, and the background is
+    /// kept quiet anyway by not boosting it. 0 turns noise reduction off.
+    static var noiseReductionDB: Double { value("noiseReduction", default: 12) }
+    /// Sound notifications listen through more noise reduction: how it sounds doesn't matter
+    /// there, only that a cry stands out. Off when noise reduction is off.
+    static var detectionReductionDB: Double { noiseReductionDB > 0 ? max(noiseReductionDB, 24) : 0 }
     /// How much quiet sounds are raised. Louder sounds are raised less, so everything ends up
     /// clearly audible without loud sounds blasting. 0 turns this off.
     static var boostDB: Double { value("audioBoost", default: 40) }
@@ -74,9 +78,23 @@ final class AudioProcessor {
 
     /// The same processing on decoded samples (for `--process`). Advances `framesIn` only;
     /// `framesOut` is the caller's to advance.
+    /// Noise reduction takes most from where the noise is loudest, usually the low mids, which
+    /// leaves sounds thin and bright. A gentle tilt (+3 dB below 400 Hz, -4 dB above 3 kHz)
+    /// puts the warmth back. Mono streams only; per channel state would be needed otherwise.
+    private var tone: (rate: Double, low: Shelf, high: Shelf)?
+
     func process(_ pcm: AudioDecoder.PCM) -> AudioDecoder.PCM {
         framesIn += pcm.samples.count / pcm.channels
         var out = reduction > 0 ? cleaner.clean(pcm) : pcm
+        if reduction > 0, out.channels == 1, !out.samples.isEmpty {
+            if tone?.rate != out.sampleRate {
+                tone = (out.sampleRate, Shelf(low: true, hz: 400, gainDB: 3, rate: out.sampleRate),
+                        Shelf(low: false, hz: 3000, gainDB: -4, rate: out.sampleRate))
+            }
+            for i in out.samples.indices {
+                out.samples[i] = tone!.high.process(tone!.low.process(out.samples[i]))
+            }
+        }
         if compressor.makeupDB > 0 {
             compressor.process(&out)
             limiter.process(&out)
@@ -152,6 +170,33 @@ final class NoiseCleaner {
     }
 }
 
+/// RBJ cookbook shelving filter (slope 1).
+struct Shelf {
+    private let b0, b1, b2, a1, a2: Float
+    private var x1: Float = 0, x2: Float = 0, y1: Float = 0, y2: Float = 0
+
+    init(low: Bool, hz: Double, gainDB: Float, rate: Double) {
+        let A = pow(10, Double(gainDB) / 40)
+        let w = 2 * Double.pi * hz / rate
+        let alpha = sin(w) / 2 * sqrt(2.0)
+        let c = cos(w), s = 2 * sqrt(A) * alpha
+        let (nb0, nb1, nb2, na0, na1, na2): (Double, Double, Double, Double, Double, Double) = low
+            ? (A * ((A + 1) - (A - 1) * c + s), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - s),
+               (A + 1) + (A - 1) * c + s, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - s)
+            : (A * ((A + 1) + (A - 1) * c + s), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - s),
+               (A + 1) - (A - 1) * c + s, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - s)
+        b0 = Float(nb0 / na0); b1 = Float(nb1 / na0); b2 = Float(nb2 / na0)
+        a1 = Float(na1 / na0); a2 = Float(na2 / na0)
+    }
+
+    mutating func process(_ x: Float) -> Float {
+        let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2 = x1; x1 = x
+        y2 = y1; y1 = y
+        return y
+    }
+}
+
 /// Second-order high-pass (RBJ cookbook, Butterworth Q): takes out rumble and hum below
 /// the cutoff, which only eats into the headroom the boost needs.
 struct HighPass {
@@ -210,6 +255,12 @@ final class NoiseSuppressor {
     private let re: UnsafeMutablePointer<Float>
     private let im: UnsafeMutablePointer<Float>
 
+    /// Neighbouring bands each side whose gains are blended in.
+    private static let spread = 3
+    /// How slowly a band's gain falls back after rising (per frame).
+    private static let fade: Float = 0.7
+
+    private var fading: [Float]
     private var power: [Float]
     private var smoothed: [Float]
     private var noise: [Float]
@@ -247,6 +298,7 @@ final class NoiseSuppressor {
         im = .allocate(capacity: size / 2)
 
         power = [Float](repeating: 0, count: bins)
+        fading = [Float](repeating: 1, count: bins)
         smoothed = power
         noise = power
         clean = power
@@ -304,6 +356,22 @@ final class NoiseSuppressor {
             let g = max(prior / (1 + prior), minGain)
             gains[k] = g
             clean[k] = g * g * power[k]
+        }
+        // Bands switching up and down on their own is what sounds metallic ("musical noise"):
+        // blend each band's gain with its neighbours', and let gains fall back only gradually.
+        var blended = gains
+        for k in 0..<bins {
+            var sum: Float = 0, weight: Float = 0
+            for j in max(0, k - Self.spread)...min(bins - 1, k + Self.spread) {
+                let w = Float(Self.spread + 1 - abs(j - k))
+                sum += w * gains[j]
+                weight += w
+            }
+            blended[k] = sum / weight
+        }
+        for k in 0..<bins {
+            fading[k] = Self.fade * fading[k] + (1 - Self.fade) * blended[k]
+            gains[k] = max(blended[k], fading[k])
         }
         re[0] *= gains[0]
         im[0] *= gains[bins - 1]
@@ -368,8 +436,8 @@ struct Compressor {
     private let ratio: Float
     private let knee: Float = 10
     /// Boost held back from the background, and how far above it sound gets the full boost.
-    private let expansion: Float = 20
-    private let closed: Float = 6, open: Float = 14
+    private let expansion: Float = 30
+    private let closed: Float = 4, open: Float = 10
     private var envelope: Float = 0
     /// A slower envelope (20 ms attack, 800 ms release) that decides how much boost to hold back.
     /// Steady noise barely moves it, so the background doesn't pump; a sound lifts it at once.

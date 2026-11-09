@@ -13,6 +13,10 @@ What changed in each ReoBaby release. Every version is on the
   cry still comes up by 40 dB. Noise reduction also works from the first
   second, instead of letting loud noise through for a few seconds every time
   ReoBaby connects.
+- **Natural sound.** Noise reduction is gentler (12 dB) and smoother, so voices
+  and cries no longer sound metallic or flanged, and a gentle tone correction
+  brings back the warmth it took out. Sound notifications still listen through
+  24 dB of noise reduction.
 
 ## 1.5.0 · 2026-11-08
 
