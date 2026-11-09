@@ -353,14 +353,19 @@ private struct NotificationsPane: View {
 }
 
 private struct SoundPane: View {
-    @AppStorage("noiseReduction") private var reduction = SoundSettings.defaults["noiseReduction"]!
-    @AppStorage("audioBoost") private var boost = SoundSettings.defaults["audioBoost"]!
-    @AppStorage("compressorThreshold") private var threshold = SoundSettings.defaults["compressorThreshold"]!
-    @AppStorage("compressorRatio") private var ratio = SoundSettings.defaults["compressorRatio"]!
+    /// What SoundSettings uses while a setting isn't set; Restore Defaults unsets them.
+    private static let defaults: [String: Double] = [
+        "noiseReduction": 12, "audioBoost": 40, "compressorThreshold": -50, "compressorRatio": 2,
+    ]
+
+    @AppStorage("noiseReduction") private var reduction = defaults["noiseReduction"]!
+    @AppStorage("audioBoost") private var boost = defaults["audioBoost"]!
+    @AppStorage("compressorThreshold") private var threshold = defaults["compressorThreshold"]!
+    @AppStorage("compressorRatio") private var ratio = defaults["compressorRatio"]!
 
     private var isDefault: Bool {
-        reduction == SoundSettings.defaults["noiseReduction"] && boost == SoundSettings.defaults["audioBoost"]
-            && threshold == SoundSettings.defaults["compressorThreshold"] && ratio == SoundSettings.defaults["compressorRatio"]
+        reduction == Self.defaults["noiseReduction"] && boost == Self.defaults["audioBoost"]
+            && threshold == Self.defaults["compressorThreshold"] && ratio == Self.defaults["compressorRatio"]
     }
 
     var body: some View {
@@ -368,10 +373,10 @@ private struct SoundPane: View {
             Section {
                 SliderRow("Noise reduction", value: $reduction, in: 0...36, step: 3,
                           text: reduction == 0 ? "Off" : "\(Int(reduction)) dB",
-                          detail: "Turns steady background noise down: a fan, a white-noise machine, microphone hiss. Sound notifications listen through it too.")
+                          detail: "Turns steady background noise down as you listen: a fan, a white-noise machine, microphone hiss. Sound notifications listen through at least 24 dB of it, and none when it's off.")
                 SliderRow("Boost quiet sounds", value: $boost, in: 0...50, step: 5,
                           text: boost == 0 ? "Off" : "+\(Int(boost)) dB",
-                          detail: "Quiet sounds are raised the most and loud ones less, so a whimper is easy to hear and a cry doesn't distort.")
+                          detail: "Quiet sounds are raised the most and loud ones less, so a whimper is easy to hear and a cry doesn't distort. The room's background noise isn't raised.")
             } header: {
                 Text("Camera Sound")
             } footer: {
@@ -392,7 +397,7 @@ private struct SoundPane: View {
                     Spacer()
                     Button("Restore Defaults") {
                         withAnimation {
-                            SoundSettings.defaults.keys.forEach(UserDefaults.standard.removeObject(forKey:))
+                            Self.defaults.keys.forEach(UserDefaults.standard.removeObject(forKey:))
                         }
                     }
                     .disabled(isDefault)
