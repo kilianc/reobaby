@@ -50,6 +50,8 @@ final class PTZController {
     private var zoomTask: Task<Void, Never>?
     private var poller: Task<Void, Never>?
     private var travel: Task<Void, Never>?
+    /// Asking the camera what it can do, until it answers.
+    private var asking: Task<Void, Never>?
     // Read by the chase, which runs off the main thread.
     private let liveTarget = Locked<PTZPosition?>(nil)
     private let liveTolerance = Locked(PTZPosition(pan: 30, tilt: 30))
@@ -63,9 +65,11 @@ final class PTZController {
         chase?.cancel()
         zoomTask?.cancel()
         travel?.cancel()
+        asking?.cancel()
         chase = nil
         zoomTask = nil
         travel = nil
+        asking = nil
         liveTarget.value = nil
         liveZoom.value = nil
         if let old = device { Task { await old.logout() } }
@@ -74,15 +78,23 @@ final class PTZController {
         state = State()
         guard let new else { return }
         let generation = generation
-        Task {
-            do {
-                let ability = try await new.ptzAbility()
-                guard generation == self.generation else { return }
-                state.ability = ability
-                if ability.any { await refresh(all: true) }
-                if isActive { startPolling() }
-            } catch {
-                // Not a Reolink camera, or not answering: no controls.
+        // A camera busy at that moment, as just after launch, can miss the question: ask
+        // again, less and less often, until it answers. Until then there are no controls.
+        asking = Task {
+            var wait = 5.0
+            while generation == self.generation, !Task.isCancelled {
+                do {
+                    let ability = try await new.ptzAbility()
+                    guard generation == self.generation else { return }
+                    state.ability = ability
+                    if ability.any { await refresh(all: true) }
+                    if isActive { startPolling() }
+                    return
+                } catch {
+                    // Not answering, or not a Reolink camera.
+                }
+                try? await Task.sleep(for: .seconds(wait))
+                wait = min(wait * 2, 60)
             }
         }
     }
