@@ -31,6 +31,9 @@ app on my Mac, so I can keep an eye on my little dude while I work.
 - **No Camera.** Choose it from the camera list, or press 0, to close the
   player and disconnect from every camera, as Pause does. **Show Player** opens
   it again on the last camera you watched.
+- **Camera controls** for pan-tilt-zoom cameras such as the E1 Zoom: click the
+  picture to center it there, drag a box to frame it, scroll to zoom, or turn
+  by the degree. More in [Camera controls](#camera-controls).
 - **Notifications** for motion (including person, vehicle and animal on cameras
   with AI detection) and for sound, each with a snapshot. They come from the
   camera you've chosen, even with the player closed; ReoBaby doesn't connect to
@@ -152,6 +155,31 @@ sound notifications listen without it too. The compressor's threshold
 how many dB louder a sound must get to come out 1 dB louder. **Restore
 Defaults** puts all four back.
 
+## Camera controls
+
+On a camera that pans, tilts or zooms, the controls strip has a scope button.
+Click it, or press C, to aim the camera from the picture:
+
+- **Click** anything to center it. A yellow ring marks the spot and follows it
+  to the middle.
+- **Drag** a box around something to center it and zoom until it fills the
+  picture.
+- **Scroll** or **pinch** to zoom. Past the lens's own zoom (about 2× on an E1
+  Zoom), ReoBaby crops the picture, up to 3× more.
+- **Arrow keys** turn the camera by 1°, or 10° with Shift; + and − zoom; Esc
+  stops the camera, then puts the controls away.
+- **Scales** along the edges show pan and tilt in degrees and the zoom. Drag
+  one to turn or zoom, click a value to go there, or double-click the reading to
+  type an exact one. The bar under a scale shows what the picture covers; while
+  the camera moves, a white triangle shows where it is.
+- **Saved positions** (the bookmark button) are the camera's own, shared with
+  the Reolink app: go to one, save where the camera points now, or remove one.
+
+Reolink cameras can only start turning and stop, at about 60° a second, so
+ReoBaby watches where the camera points and corrects with short nudges until
+it's within about a degree. It steers over ONVIF when the camera has it on (the
+default), which answers much faster than the camera's HTTP API.
+
 ## Keyboard
 
 | Key | Action |
@@ -160,13 +188,15 @@ Defaults** puts all four back.
 | M | Mute or unmute |
 | ↑ ↓ | Volume |
 | T | Float on top |
+| C | Camera controls, on cameras that pan, tilt or zoom |
 | ← → or Tab, `[` `]` | Previous or next camera |
 | 1–9, ⌘1–⌘9 | Jump to a camera |
 | 0, ⌘0 | No camera |
 | ⌃⌘F | Full screen |
 | ⌘, | Settings |
 
-Right-click the video for the same menu.
+Right-click the video for the same menu. With camera controls on, the arrow
+keys, + and − and Esc aim the camera instead (see [Camera controls](#camera-controls)).
 
 ## Build from source
 
@@ -215,6 +245,20 @@ build/ReoBaby.app/Contents/MacOS/ReoBaby --record "Nursery" 60 build/room.wav
 build/ReoBaby.app/Contents/MacOS/ReoBaby --process build/room.wav build/room-processed.wav
 ```
 
+To drive a pan-tilt camera from Terminal, and to measure how a new model moves
+(`PTZGeometry` holds the E1 Zoom's numbers), use `--ptz`. `survey` measures how
+far the picture moves per unit of pan and tilt at a zoom; `ends` checks whether
+the pictures at the two pan end stops overlap, which means a full turn.
+`--api` sends any command of the camera's HTTP API and prints the answer:
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --ptz "Nursery" pos
+```
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --api "Nursery" GetPtzCurPos '{"PtzCurPos":{"channel":0}}'
+```
+
 `REOBABY_UPDATE_URL` points the updater at another release feed (a JSON file
 shaped like GitHub's latest-release answer), to test updates without publishing.
 
@@ -223,7 +267,9 @@ shaped like GitHub's latest-release answer), to test updates without publishing.
 `test/demo/nursery-photo.jpg` is an AI-generated photo, so no real footage ends up in the repo.
 `tools/demo-frame.swift` stamps it with a camera clock into `test/demo/nursery.png`, which
 `make test-server` streams as the `nursery` camera. `REOBABY_CONFIG_DIR` points the app at a
-different camera list, and `REOBABY_PIN_CONTROLS=1` keeps the controls visible:
+different camera list, and `REOBABY_PIN_CONTROLS=1` keeps the controls visible.
+`REOBABY_PTZ_DEMO=1` gives every camera a pretend pan-tilt-zoom motor, and
+`REOBABY_CAMERA_CONTROLS=1` opens camera controls at launch:
 
 ```bash
 mkdir -p /tmp/reobaby-demo

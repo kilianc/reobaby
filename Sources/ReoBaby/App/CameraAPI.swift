@@ -2,7 +2,8 @@ import Foundation
 
 /// Reolink HTTP API (`/api.cgi`, JSON over POST, token login).
 /// Cameras serve a self-signed certificate; it is trusted for this exact host only.
-final class CameraAPI: NSObject, URLSessionDelegate {
+/// Commands may run concurrently: camera controls stop the camera while a move is still being answered.
+final class CameraAPI: NSObject, URLSessionDelegate, @unchecked Sendable {
     enum APIError: Error {
         case badResponse
         case failed(code: Int, detail: String)
@@ -18,11 +19,30 @@ final class CameraAPI: NSObject, URLSessionDelegate {
     }
 
     let host: String
+    var userName: String { user }
     private let user: String
-    private let password: String
+    let password: String
+    struct ONVIFState { var client: ONVIFClient? }
+    /// Nil until looked up.
+    let onvifState = Locked<ONVIFState?>(nil)
+    /// ONVIF cameras close the connection after every answer; a session of its own keeps that apart.
+    private(set) lazy var onvifSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 4
+        return URLSession(configuration: config)
+    }()
     private var session: URLSession!
-    private var base: URL?
-    private var token: String?
+    private let lock = NSLock()
+    private var _base: URL?
+    private var _token: String?
+    private var base: URL? {
+        get { lock.withLock { _base } }
+        set { lock.withLock { _base = newValue } }
+    }
+    private var token: String? {
+        get { lock.withLock { _token } }
+        set { lock.withLock { _token = newValue } }
+    }
 
     init(host: String, user: String, password: String, timeout: TimeInterval = 6) {
         self.host = host
@@ -36,6 +56,7 @@ final class CameraAPI: NSObject, URLSessionDelegate {
 
     deinit {
         session.invalidateAndCancel()
+        onvifSession.invalidateAndCancel()
     }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
@@ -131,6 +152,11 @@ final class CameraAPI: NSObject, URLSessionDelegate {
         throw APIError.badResponse
     }
 
+    /// Any command, answered as the camera answers it. For `ReoBaby --api`.
+    func raw(_ cmd: String, action: Int = 0, param: [String: Any]) async throws -> [[String: Any]] {
+        try await run([["cmd": cmd, "action": action, "param": param]])
+    }
+
     func logout() async {
         guard let token, let base else { return }
         self.token = nil
@@ -139,7 +165,7 @@ final class CameraAPI: NSObject, URLSessionDelegate {
 
     // MARK: - Transport
 
-    private func value(of command: [String: Any]) async throws -> [String: Any] {
+    func value(of command: [String: Any]) async throws -> [String: Any] {
         let result = try await run([command])
         guard let first = result.first else { throw APIError.badResponse }
         if let error = Self.error(in: first) { throw error }
@@ -147,7 +173,7 @@ final class CameraAPI: NSObject, URLSessionDelegate {
     }
 
     /// Runs a batch of commands, logging in (again) when the token is missing or expired.
-    private func run(_ commands: [[String: Any]]) async throws -> [[String: Any]] {
+    func run(_ commands: [[String: Any]]) async throws -> [[String: Any]] {
         for attempt in 0..<2 {
             if token == nil { try await login() }
             guard let base, let token else { throw APIError.badResponse }
@@ -206,7 +232,7 @@ final class CameraAPI: NSObject, URLSessionDelegate {
         return result
     }
 
-    private static func error(in item: [String: Any]) -> APIError? {
+    static func error(in item: [String: Any]) -> APIError? {
         guard (item["code"] as? Int ?? 0) != 0 else { return nil }
         let error = item["error"] as? [String: Any]
         return .failed(code: error?["rspCode"] as? Int ?? -1, detail: error?["detail"] as? String ?? "")

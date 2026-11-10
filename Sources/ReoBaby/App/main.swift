@@ -23,6 +23,16 @@ if let i = arguments.firstIndex(of: "--process"), i + 1 < arguments.count {
     exit(Probe.process(arguments[i + 1], to: output))
 }
 
+if let i = arguments.firstIndex(of: "--api"), i + 2 < arguments.count {
+    let param = i + 3 < arguments.count ? arguments[i + 3] : "{\"channel\":0}"
+    let action = i + 4 < arguments.count ? Int(arguments[i + 4]) ?? 0 : 0
+    exit(Probe.api(target: arguments[i + 1], cmd: arguments[i + 2], param: param, action: action))
+}
+
+if let i = arguments.firstIndex(of: "--ptz"), i + 1 < arguments.count {
+    exit(Probe.ptz(target: arguments[i + 1], arguments: Array(arguments[(i + 2)...])))
+}
+
 if let i = arguments.firstIndex(of: "--install-update") {
     exit(Updater.finishInstall(arguments: Array(arguments[(i + 1)...])))
 }
@@ -31,8 +41,10 @@ if arguments.contains("--discover") {
     exit(Probe.discover())
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.regular)
-app.run()
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(.regular)
+    app.run()
+}

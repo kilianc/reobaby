@@ -5,7 +5,7 @@ import VideoToolbox
 /// `ReoBaby --probe <camera name | number | rtsp://url> [seconds]`
 /// Connects headlessly, decodes video with VideoToolbox, and reports what it got.
 enum Probe {
-    private static func resolve(_ target: String) -> (Camera, RTSPEndpoint)? {
+    static func resolve(_ target: String) -> (Camera, RTSPEndpoint)? {
         if target.lowercased().hasPrefix("rtsp://") {
             let camera = Camera(name: nil, url: target, user: nil, password: nil)
             return RTSPEndpoint(target).map { (camera, $0) }
@@ -38,6 +38,46 @@ enum Probe {
             print("  \(host)\(configured.contains(host) ? "  (already added)" : "")")
         }
         return found.isEmpty ? 1 : 0
+    }
+
+    /// Runs async work to completion from a command-line entry point.
+    static func wait(_ work: @escaping () async -> Int32) -> Int32 {
+        final class Box { var value: Int32 = 1 }
+        let box = Box()
+        let done = DispatchSemaphore(value: 0)
+        Task.detached {
+            box.value = await work()
+            done.signal()
+        }
+        done.wait()
+        return box.value
+    }
+
+    /// `ReoBaby --api <camera> <Command> [json param] [action]`: one command of the camera's HTTP API,
+    /// answered as the camera answers it. For finding out what a camera model can do.
+    static func api(target: String, cmd: String, param: String, action: Int) -> Int32 {
+        guard let (_, endpoint) = resolve(target), let password = endpoint.password else {
+            print("No camera with a saved password matching “\(target)”")
+            return 2
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(param.utf8)) as? [String: Any] else {
+            print("The param must be a JSON object")
+            return 2
+        }
+        let api = CameraAPI(host: endpoint.host, user: endpoint.user ?? "admin", password: password)
+        return wait {
+            do {
+                let reply = try await api.raw(cmd, action: action, param: object)
+                let data = try JSONSerialization.data(withJSONObject: reply, options: [.prettyPrinted, .sortedKeys])
+                print(String(decoding: data, as: UTF8.self))
+                await api.logout()
+                return 0
+            } catch {
+                print("failed: \(error)")
+                await api.logout()
+                return 1
+            }
+        }
     }
 
     /// `ReoBaby --monitor <camera> [seconds]`: background detection as the menu bar runs it.

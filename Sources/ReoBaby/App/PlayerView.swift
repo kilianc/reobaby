@@ -1,24 +1,43 @@
 import AppKit
 import AVFoundation
 
-/// View backed directly by an AVSampleBufferDisplayLayer.
+/// The video, in an AVSampleBufferDisplayLayer that can be scaled up for digital zoom.
 final class VideoView: NSView {
+    let displayLayer = AVSampleBufferDisplayLayer()
+
+    /// Crops into the middle of the picture: 1 shows all of it.
+    var digitalZoom: CGFloat = 1 {
+        didSet {
+            guard digitalZoom != oldValue else { return }
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.25)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+            displayLayer.setAffineTransform(CGAffineTransform(scaleX: digitalZoom, y: digitalZoom))
+            CATransaction.commit()
+        }
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
+        displayLayer.videoGravity = .resizeAspect
+        displayLayer.backgroundColor = NSColor.black.cgColor
+        layer?.addSublayer(displayLayer)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func makeBackingLayer() -> CALayer {
-        let layer = AVSampleBufferDisplayLayer()
-        layer.videoGravity = .resizeAspect
-        layer.backgroundColor = NSColor.black.cgColor
-        return layer
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        displayLayer.bounds = bounds
+        displayLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        CATransaction.commit()
     }
-
-    var displayLayer: AVSampleBufferDisplayLayer { layer as! AVSampleBufferDisplayLayer }
 
     override var mouseDownCanMoveWindow: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -70,8 +89,11 @@ final class HUDSliderCell: NSSliderCell {
 /// Video plus a QuickTime-style floating control strip that appears on hover.
 final class PlayerView: NSView {
     let videoView = VideoView()
+    let ptzOverlay = PTZOverlayView()
     private let hud = NSVisualEffectView()
     private let cameraButton = HUDButton()
+    private let aimButton = HUDButton()
+    private let positionsButton = HUDButton()
     private let pauseButton = HUDButton()
     private let muteButton = HUDButton()
     private let pinButton = HUDButton()
@@ -89,6 +111,13 @@ final class PlayerView: NSView {
     var contextMenu: (() -> NSMenu?)?
     var onKey: ((NSEvent) -> Bool)?
     var onControlsVisible: ((Bool) -> Void)?
+    var onAim: (() -> Void)?
+    var positionsMenu: (() -> NSMenu?)?
+
+    /// The video's own size, for where the picture sits in the view.
+    var videoSize: CGSize = CGSize(width: 16, height: 9) {
+        didSet { ptzOverlay.videoSize = videoSize }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -98,6 +127,11 @@ final class PlayerView: NSView {
         videoView.frame = bounds
         videoView.autoresizingMask = [.width, .height]
         addSubview(videoView)
+        ptzOverlay.frame = bounds
+        ptzOverlay.autoresizingMask = [.width, .height]
+        ptzOverlay.isHidden = true
+        ptzOverlay.alphaValue = 0
+        addSubview(ptzOverlay)
 
         statusLabel.alignment = .center
         statusLabel.textColor = NSColor.white.withAlphaComponent(0.85)
@@ -118,6 +152,10 @@ final class PlayerView: NSView {
         configure(pauseButton, symbol: "pause.fill", tip: "Pause (Space)", action: #selector(pauseClicked))
         configure(muteButton, symbol: "speaker.slash.fill", tip: "Mute (M)", action: #selector(muteClicked))
         configure(pinButton, symbol: "pin.fill", tip: "Float on top (T)", action: #selector(pinClicked))
+        configure(aimButton, symbol: "scope", tip: "Camera controls (C)", action: #selector(aimClicked))
+        configure(positionsButton, symbol: "bookmark", tip: "Saved positions", action: #selector(positionsClicked))
+        aimButton.isHidden = true
+        positionsButton.isHidden = true
 
         volumeSlider.minValue = 0
         volumeSlider.maxValue = 1
@@ -129,7 +167,7 @@ final class PlayerView: NSView {
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
         volumeSlider.widthAnchor.constraint(equalToConstant: 64).isActive = true
 
-        let stack = NSStackView(views: [cameraButton, pauseButton, muteButton, volumeSlider, pinButton])
+        let stack = NSStackView(views: [cameraButton, pauseButton, muteButton, volumeSlider, aimButton, positionsButton, pinButton])
         stack.setCustomSpacing(6, after: volumeSlider)
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 4)
@@ -206,6 +244,31 @@ final class PlayerView: NSView {
         pinButton.toolTip = pinned ? "Stop floating on top (T)" : "Float on top (T)"
     }
 
+    /// Whether the camera has controls, and whether they are on screen.
+    func setCameraControls(available: Bool, shown: Bool, positions: Bool) {
+        aimButton.isHidden = !available
+        positionsButton.isHidden = !(shown && positions)
+        aimButton.image = symbol("scope", weight: shown ? .bold : .medium)
+        aimButton.contentTintColor = shown ? .systemYellow : .white
+        aimButton.toolTip = shown ? "Hide camera controls (C)" : "Camera controls (C)"
+        guard shown != !ptzOverlay.isHidden || ptzOverlay.alphaValue != (shown ? 1 : 0) else { return }
+        if shown {
+            ptzOverlay.isHidden = false
+            ptzOverlay.needsLayout = true
+            window?.invalidateCursorRects(for: ptzOverlay)
+        } else {
+            ptzOverlay.reset()
+        }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = shown ? 0.18 : 0.25
+            ptzOverlay.animator().alphaValue = shown ? 1 : 0
+        }, completionHandler: { [weak self] in
+            guard let self, !shown, self.ptzOverlay.alphaValue == 0 else { return }
+            self.ptzOverlay.isHidden = true
+            self.window?.invalidateCursorRects(for: self.ptzOverlay)
+        })
+    }
+
     func showStatus(_ text: String?) {
         statusLabel.stringValue = text ?? ""
         statusLabel.isHidden = text == nil
@@ -214,6 +277,14 @@ final class PlayerView: NSView {
     @objc private func cameraClicked() {
         guard let menu = cameraMenu?() else { return }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: cameraButton.bounds.height + 4), in: cameraButton)
+        poke()
+    }
+
+    @objc private func aimClicked() { onAim?() }
+
+    @objc private func positionsClicked() {
+        guard let menu = positionsMenu?() else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: positionsButton.bounds.height + 4), in: positionsButton)
         poke()
     }
 
@@ -279,6 +350,7 @@ final class PlayerView: NSView {
             ctx.duration = visible ? 0.15 : 0.4
             hud.animator().alphaValue = visible ? 1 : 0
         }
+        ptzOverlay.setScales(visible: visible)
         onControlsVisible?(visible)
     }
 

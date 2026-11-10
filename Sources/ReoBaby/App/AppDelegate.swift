@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var window: PlayerWindow!
     private var playerView: PlayerView!
@@ -22,6 +23,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Motion and sound notifications for the chosen camera, even while the player is closed.
     private var monitor: CameraMonitor?
     private let defaults = UserDefaults.standard
+    /// Pan, tilt and zoom for the camera in the player.
+    private let ptz = PTZController()
+    private var ptzHost: String?
+    private var openedControlsAtLaunch = false
+
+    /// Camera controls on screen: click to center, scales for pan, tilt and zoom.
+    private var aiming = false {
+        didSet {
+            guard aiming != oldValue else { return }
+            ptz.isActive = aiming
+            if aiming {
+                playerView.ptzOverlay.showHint("Click to center · Drag to frame · Scroll to zoom")
+            }
+            refreshControls()
+        }
+    }
 
     private var muted = true {
         didSet {
@@ -54,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard paused != oldValue else { return }
             if paused {
                 player.stop()
+                connectPTZ(nil)
                 if !cameras.isEmpty { showPaused() }
             } else if cameras.isEmpty {
                 reloadCameras(force: true)
@@ -106,6 +124,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         playerView.contextMenu = { [weak self] in self?.makeContextMenu() }
         playerView.onKey = { [weak self] in self?.handleKey($0) ?? false }
         playerView.onControlsVisible = { [weak self] in self?.window.setTrafficLights(visible: $0) }
+        playerView.onAim = { [weak self] in self?.toggleCameraControls(nil) }
+        playerView.positionsMenu = { [weak self] in self?.makePositionsMenu() }
+        playerView.ptzOverlay.controller = ptz
+        ptz.onChange = { [weak self] in self?.ptzChanged() }
+        ptz.onMoveEnded = { [weak self] in self?.playerView.ptzOverlay.moveEnded($0) }
+        ptz.onError = { [weak self] in self?.playerView.ptzOverlay.showHint($0) }
+        ptz.shouldPoll = { [weak self] in
+            guard let self else { return false }
+            return self.window.isVisible && !self.window.isMiniaturized
+        }
 
         volume = defaults.float(forKey: "volume")
         muted = defaults.bool(forKey: "muted")
@@ -180,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             loadedConfig = nil
             cameras = []
             player.stop()
+            connectPTZ(nil)
             syncMonitor()
             showNoCameras()
             return
@@ -198,8 +227,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let accounts = list.compactMap(\.keychainAccount).filter { !Keychain.isLoaded($0) }
         if !accounts.isEmpty {
             // Usually instant; worth a word only when macOS stops to ask for keychain access.
-            let waiting = DispatchWorkItem { [weak self] in self?.playerView.showStatus("Waiting for keychain access…") }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: waiting)
+            let waiting = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                self?.playerView.showStatus("Waiting for keychain access…")
+            }
             DispatchQueue.global(qos: .userInitiated).async {
                 for account in Set(accounts) { _ = Keychain.password(account: account) }
                 DispatchQueue.main.async {
@@ -214,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         cameras = list
         guard !list.isEmpty else {
             player.stop()
+            connectPTZ(nil)
             syncMonitor()
             showNoCameras()
             return
@@ -259,6 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         refreshControls()
         guard let camera = currentCamera else {
             player.stop()
+            connectPTZ(nil)
             playerView.showStatus(nil)
             return window.orderOut(nil)
         }
@@ -266,14 +300,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if reopening { showPlayer(nil) }
         guard !paused else {
             player.stop()
+            connectPTZ(nil)
             return showPaused()
         }
         guard let endpoint = camera.endpoint() else {
             player.stop()
+            connectPTZ(nil)
             playerView.showStatus("“\(camera.displayName)” needs an rtsp:// url")
             return
         }
         player.play(endpoint)
+        connectPTZ(endpoint)
+    }
+
+    /// Camera controls talk to the camera in the player, over its HTTP API.
+    /// `REOBABY_PTZ_DEMO=1` gives every camera a pretend motor instead, for demos and testing.
+    private func connectPTZ(_ endpoint: RTSPEndpoint?) {
+        let demo = ProcessInfo.processInfo.environment["REOBABY_PTZ_DEMO"] == "1"
+        let key = endpoint.map { "\($0.user ?? "")@\($0.host)/\($0.password ?? "")" }
+        guard key != ptzHost else { return }
+        ptzHost = key
+        guard let endpoint, let password = endpoint.password ?? (demo ? "" : nil) else {
+            ptz.connect(nil)
+            return
+        }
+        ptz.connect(demo ? PTZSimulator() : CameraAPI(host: endpoint.host, user: endpoint.user ?? "admin", password: password))
+    }
+
+    private func ptzChanged() {
+        let state = ptz.state
+        if aiming && !state.available { aiming = false }
+        // Opens camera controls once at launch, for demos and screenshots.
+        if state.available, !openedControlsAtLaunch, ProcessInfo.processInfo.environment["REOBABY_CAMERA_CONTROLS"] == "1" {
+            openedControlsAtLaunch = true
+            aiming = true
+        }
+        playerView.videoView.digitalZoom = state.digitalZoom
+        playerView.ptzOverlay.update()
+        refreshControls()
     }
 
     /// ReoBaby 1.3.0 saved No Camera as an empty "camera".
@@ -374,6 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func applyVideoSize(_ size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
+        playerView.videoSize = size
         window.contentAspectRatio = size
         guard !window.styleMask.contains(.fullScreen) else { return }
         var frame = window.frame
@@ -442,6 +507,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         volume = (clamped * 100).rounded() / 100
     }
     @objc func togglePin(_ sender: Any?) { pinned.toggle() }
+
+    @objc func toggleCameraControls(_ sender: Any?) {
+        guard ptz.state.available || aiming else { return }
+        aiming.toggle()
+        if aiming { showPlayer(nil) }
+    }
+
+    @objc func goToPosition(_ sender: NSMenuItem) {
+        guard let preset = sender.representedObject as? PTZPresetBox else { return }
+        ptz.goTo(preset.preset)
+    }
+
+    @objc func savePosition(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Save this position"
+        alert.informativeText = "The camera keeps it, with the zoom, and the Reolink app shows it too."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 22))
+        field.stringValue = ptz.nextPositionName
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Reolink cameras keep names up to 31 characters.
+        ptz.savePosition(named: String((name.isEmpty ? ptz.nextPositionName : name).prefix(31)))
+    }
+
+    @objc func removePosition(_ sender: NSMenuItem) {
+        guard let preset = (sender.representedObject as? PTZPresetBox)?.preset else { return }
+        let alert = NSAlert()
+        alert.messageText = "Remove “\(preset.name)”?"
+        alert.informativeText = "The camera forgets this position, in the Reolink app too."
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        ptz.remove(preset)
+    }
     @objc func nextCamera(_ sender: Any?) { step(1) }
     @objc func previousCamera(_ sender: Any?) { step(-1) }
 
@@ -528,10 +634,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func refreshControls() {
         let name = currentCamera?.displayName ?? (cameras.isEmpty ? nil : "No Camera")
         playerView?.update(cameraName: name, paused: paused, muted: muted, volume: volume, pinned: pinned)
+        playerView?.setCameraControls(available: ptz.state.available, shown: aiming,
+                                      positions: ptz.state.ability?.presets == true)
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
         guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
+        if aiming {
+            // Arrows turn the camera a degree, ten with Shift; + and - zoom; Esc stops, then puts the controls away.
+            let step = event.modifierFlags.contains(.shift) ? 10.0 : 1.0
+            switch event.keyCode {
+            case 123: ptz.nudge(pan: -step); return true
+            case 124: ptz.nudge(pan: step); return true
+            case 126: ptz.nudge(tilt: step); return true
+            case 125: ptz.nudge(tilt: -step); return true
+            case 24, 69: ptz.zoom(by: 1.25); return true // = + and keypad +
+            case 27, 78: ptz.zoom(by: 1 / 1.25); return true // - and keypad -
+            case 53:
+                if ptz.state.moving { ptz.stop() } else { aiming = false }
+                return true
+            default: break
+            }
+        }
+        if event.charactersIgnoringModifiers?.lowercased() == "c", ptz.state.available || aiming {
+            toggleCameraControls(nil)
+            return true
+        }
         switch event.keyCode {
         case 123: step(-1); return true // ←
         case 124, 48: step(1); return true // → / tab
@@ -555,6 +683,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = muted ? .on : .off
         case #selector(togglePin(_:)):
             item.state = pinned ? .on : .off
+        case #selector(toggleCameraControls(_:)):
+            item.state = aiming ? .on : .off
+            return ptz.state.available
         case #selector(chooseCamera(_:)), #selector(chooseCameraAndShow(_:)):
             item.state = item.tag == currentIndex ? .on : .off
         case #selector(nextCamera(_:)), #selector(previousCamera(_:)):
@@ -634,8 +765,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return menu
     }
 
+    /// The camera's saved positions, and saving or removing one.
+    private func makePositionsMenu() -> NSMenu {
+        let menu = NSMenu()
+        let presets = ptz.state.presets
+        if presets.isEmpty {
+            let none = NSMenuItem(title: "No Saved Positions", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+        }
+        for preset in presets {
+            let go = item(preset.name, #selector(goToPosition(_:)))
+            go.representedObject = PTZPresetBox(preset)
+            menu.addItem(go)
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("Save Current Position…", #selector(savePosition(_:))))
+        if !presets.isEmpty {
+            let remove = NSMenuItem(title: "Remove", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            for preset in presets {
+                let entry = item(preset.name, #selector(removePosition(_:)))
+                entry.representedObject = PTZPresetBox(preset)
+                submenu.addItem(entry)
+            }
+            remove.submenu = submenu
+            menu.addItem(remove)
+        }
+        return menu
+    }
+
     private func makeContextMenu() -> NSMenu {
         let menu = makeCameraMenu()
+        if ptz.state.available {
+            menu.insertItem(.separator(), at: 0)
+            if aiming, ptz.state.ability?.presets == true {
+                let positions = NSMenuItem(title: "Positions", action: nil, keyEquivalent: "")
+                positions.submenu = makePositionsMenu()
+                menu.insertItem(positions, at: 0)
+            }
+            menu.insertItem(item("Camera Controls", #selector(toggleCameraControls(_:))), at: 0)
+        }
         menu.insertItem(.separator(), at: 0)
         menu.insertItem(item("Float on Top", #selector(togglePin(_:))), at: 0)
         menu.insertItem(item("Mute", #selector(toggleMute(_:))), at: 0)
@@ -693,6 +863,7 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(item("Volume Up", #selector(volumeUp(_:)), String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)), []))
         menu.addItem(item("Volume Down", #selector(volumeDown(_:)), String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)), []))
         menu.addItem(item("Float on Top", #selector(togglePin(_:)), "t", []))
+        menu.addItem(item("Camera Controls", #selector(toggleCameraControls(_:)), "c", []))
         menu.addItem(.separator())
         menu.addItem(item("Next Camera", #selector(nextCamera(_:)), "]", []))
         menu.addItem(item("Previous Camera", #selector(previousCamera(_:)), "[", []))
@@ -710,4 +881,10 @@ private extension NSMenu {
         item.submenu = submenu
         addItem(item)
     }
+}
+
+/// A saved position, carried by a menu item.
+final class PTZPresetBox: NSObject {
+    let preset: PTZPreset
+    init(_ preset: PTZPreset) { self.preset = preset }
 }

@@ -3,6 +3,20 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
+## Unreleased
+
+- **Camera controls.** On cameras that pan, tilt or zoom, such as the E1 Zoom,
+  the scope button in the controls strip (or C) lets you aim from the picture:
+  click anything to center it, drag a box to frame it, scroll or pinch to zoom.
+  Scales along the edges show pan and tilt in degrees and the zoom; drag them,
+  click a value, or type an exact one. Arrow keys turn the camera by 1°, or 10°
+  with Shift. ReoBaby watches where the camera points and corrects until it's
+  within about a degree, where the Reolink app can only start and stop it.
+- **Zoom past the lens.** Beyond the camera's optical zoom, ReoBaby crops the
+  picture up to 3× more.
+- **Saved positions** from the camera, shared with the Reolink app: go to one,
+  save the current one, or remove one, from the bookmark button.
+
 ## 1.6.0 · 2026-11-08
 
 - **Settings.** **Settings…** (⌘,), in the ReoBaby menu and the moon's menu,
