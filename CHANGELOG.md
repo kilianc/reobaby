@@ -3,7 +3,7 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
-## Unreleased
+## 1.7.0 · 2026-11-09
 
 - **Camera controls.** On cameras that pan, tilt or zoom, such as the E1 Zoom,
   the scope button in the controls strip (or C) lets you aim from the picture:
