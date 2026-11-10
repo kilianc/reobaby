@@ -5,7 +5,7 @@ import UserNotifications
 
 /// The panes of Settings, in toolbar order.
 enum SettingsPane: String, CaseIterable {
-    case general, cameras, notifications, sound, about
+    case general, cameras, notifications, sound, soothing, about
 
     var title: String {
         switch self {
@@ -13,6 +13,7 @@ enum SettingsPane: String, CaseIterable {
         case .cameras: "Cameras"
         case .notifications: "Notifications"
         case .sound: "Sound"
+        case .soothing: "Soothing"
         case .about: "About"
         }
     }
@@ -23,6 +24,7 @@ enum SettingsPane: String, CaseIterable {
         case .cameras: .camera
         case .notifications: .notifications
         case .sound: .sound
+        case .soothing: .soothing
         case .about: .about
         }
     }
@@ -30,6 +32,9 @@ enum SettingsPane: String, CaseIterable {
 
 final class SettingsModel: ObservableObject {
     @Published var pane: SettingsPane
+    /// The pane is taller than the screen, so the window scrolls. Otherwise it never does, not
+    /// even for the moment the window grows to a taller pane.
+    @Published var scrolls = false
     /// The pane's height changed.
     var onHeight: ((CGFloat) -> Void)?
 
@@ -143,6 +148,13 @@ final class SettingsController: NSObject, NSWindowDelegate, NSToolbarDelegate {
         let current = window.frame
         var frame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: paneWidth, height: height.rounded(.up)))
         frame.origin = NSPoint(x: current.minX, y: current.maxY - frame.height)
+        // A pane taller than the screen scrolls, and the window stays on the screen.
+        if let screen = (window.screen ?? NSScreen.main)?.visibleFrame {
+            let scrolls = frame.height > screen.height
+            if model.scrolls != scrolls { model.scrolls = scrolls }
+            frame.size.height = min(frame.height, screen.height)
+            frame.origin.y = min(max(current.maxY - frame.height, screen.minY), screen.maxY - frame.height)
+        }
         return frame == current ? nil : frame
     }
 
@@ -184,18 +196,25 @@ struct SettingsView: View {
     let updater: Updater
 
     var body: some View {
-        Group {
-            switch model.pane {
-            case .general: GeneralPane(updater: updater)
-            case .cameras: CamerasView(model: cameras)
-            case .notifications: NotificationsPane()
-            case .sound: SoundPane()
-            case .about: AboutPane()
+        // The window is as tall as the pane, so this scrolls only on a screen too short for it.
+        ScrollView(.vertical) {
+            Group {
+                switch model.pane {
+                case .general: GeneralPane(updater: updater)
+                case .cameras: CamerasView(model: cameras)
+                case .notifications: NotificationsPane()
+                case .sound: SoundPane()
+                case .soothing: SoothingPane(soother: .shared)
+                case .about: AboutPane()
+                }
             }
+            .frame(width: paneWidth)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self, of: \.size.height) { model.onHeight?($0) }
         }
-        .frame(width: paneWidth)
-        .fixedSize(horizontal: false, vertical: true)
-        .onGeometryChange(for: CGFloat.self, of: \.size.height) { model.onHeight?($0) }
+        .scrollDisabled(!model.scrolls)
+        .scrollIndicators(model.scrolls ? .automatic : .never)
+        .scrollBounceBehavior(.basedOnSize)
         // While the window resizes, the pane stays pinned to its top.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -637,7 +656,7 @@ struct SectionNote: View {
 }
 
 /// A pane's sections, grouped like System Settings. The window is as tall as the pane, so the
-/// form never scrolls.
+/// form itself never scrolls; on a short screen, the window around it does.
 struct PaneForm<Content: View>: View {
     @ViewBuilder var content: Content
 

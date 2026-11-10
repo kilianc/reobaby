@@ -24,6 +24,9 @@ final class CameraMonitor {
     private var detector = SoundDetector()
     private var lastSoundEvent: CFAbsoluteTime = 0
     private var lastPacket: CFAbsoluteTime = 0
+    /// Until then, the room's sound is changing on purpose (Soothing Sounds starting or
+    /// stopping): no sound events, and the background is learned afresh afterwards.
+    private var relearnUntil: CFAbsoluteTime = 0
     private var retryDelay = 2.0
     private var watchdog: DispatchSourceTimer?
     private var pollTask: Task<Void, Never>?
@@ -57,6 +60,15 @@ final class CameraMonitor {
             watchdog?.cancel()
             client?.stop()
             client = nil
+        }
+    }
+
+    /// ReoBaby is changing what the camera's speaker plays: for `seconds`, take what the
+    /// microphone hears as the new background, not as a cry.
+    func expectBackgroundChange(for seconds: Double) {
+        queue.async { [self] in
+            relearnUntil = max(relearnUntil, CFAbsoluteTimeGetCurrent() + seconds)
+            detector.relearn()
         }
     }
 
@@ -106,6 +118,10 @@ final class CameraMonitor {
         let isAAC = audio is AACDepacketizer
         let duration = Double(isAAC ? frames * 1024 : frames) / rate
         onLevel?(level, detector.noiseFloor ?? level)
+        if now < relearnUntil {
+            detector.relearn(level: level)
+            return
+        }
         if detector.feed(level: level, duration: duration, at: now), now - lastSoundEvent > 5 {
             lastSoundEvent = now
             DispatchQueue.main.async { self.onEvent?(.sound(level: level)) }

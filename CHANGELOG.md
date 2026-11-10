@@ -16,6 +16,33 @@ What changed in each ReoBaby release. Every version is on the
   picture up to 3× more.
 - **Saved positions** from the camera, shared with the Reolink app: go to one,
   save the current one, or remove one, from the bookmark button.
+- **Soothing sounds.** ReoBaby plays white, pink or brown noise on the nursery
+  camera's speaker, to help your baby settle and sleep. A heartbeat, shushing
+  and slow waves can go on top, **Warmth** softens the treble, and a sleep timer
+  fades it out after 45 minutes, or up to 8 hours. Press S in the player, click
+  the moon in its controls, or use the moon's menu; **Settings › Soothing** has
+  the rest. The noise is made as it plays, with nothing recorded or downloaded.
+  It plays on the camera you're watching, or on your Mac. See
+  [Soothing sounds](README.md#soothing-sounds).
+- **A level for each layer.** In Settings › Soothing, the heartbeat, the
+  shushing and the waves each have a level slider, so you set by ear how loud
+  each is against the noise. Each starts at 50%.
+- **Preview on your Mac.** The headphones button, in Settings › Soothing and the
+  moon's popover, plays the sound as set on your Mac only, so you can choose by
+  ear before it plays in the nursery.
+- **Nothing changes suddenly.** Playing, stopping, a new colour, a layer, a
+  level, the volume, a camera switch and Pause all fade over 10 seconds, and
+  quitting fades the sound out first. Stop shows Play again at once, and Play
+  during the fade brings the sound back. The sleep timer fades out more slowly,
+  over 2 minutes or up to 10. On Reolink's E1 Zoom the sound can still stutter
+  for a moment when the camera stalls, every so often.
+- **Settings fits smaller screens.** Settings › Soothing has one row per
+  setting, and a Settings pane taller than the screen scrolls.
+- **The moon's popover matches the player.** It's dark, with the player's
+  white controls, slider and moon.
+- **Sound notifications expect it.** When soothing sounds start, stop or get
+  louder, sound notifications relearn the room's background for a few seconds,
+  so the change isn't taken for a cry.
 
 ## 1.6.0 · 2026-11-08
 

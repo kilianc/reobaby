@@ -69,4 +69,16 @@ struct SoundDetector {
     mutating func reset() {
         loud.removeAll()
     }
+
+    /// Forgets the background, to learn it again from what comes next.
+    mutating func relearn() {
+        noiseFloor = nil
+        loud.removeAll()
+    }
+
+    /// While the background is changing, follows it closely, up or down.
+    mutating func relearn(level: Float) {
+        noiseFloor = noiseFloor.map { $0 + (level - $0) * 0.1 } ?? level
+        loud.removeAll()
+    }
 }

@@ -20,7 +20,8 @@ app on my Mac, so I can keep an eye on my little dude while I work.
 ## What it does
 
 - **Picture-in-picture window.** Frameless, any size, optionally pinned above
-  every other window. Controls appear on hover: camera, pause, mute, volume, pin.
+  every other window. Controls appear on hover: camera, pause, mute, volume,
+  soothing sounds, pin.
 - **Menu bar.** Hover the moon icon to peek at the camera when the window isn't
   on screen; click the peek to keep it. Closing the window keeps ReoBaby running
   there. Turn off **Show in Dock** in **Settings › General** to keep ReoBaby in
@@ -39,6 +40,9 @@ app on my Mac, so I can keep an eye on my little dude while I work.
   camera you've chosen, even with the player closed; ReoBaby doesn't connect to
   your other cameras. Sound is measured on your Mac from the camera's audio,
   after noise reduction, even while muted.
+- **Soothing sounds** on the nursery camera's speaker: white, pink or brown
+  noise, with an optional heartbeat, shushing or waves, and a sleep timer that
+  fades out. See [Soothing sounds](#soothing-sounds).
 - **Finds your cameras.** **Settings › Cameras** looks for Reolink cameras on
   your network, checks the login and adds them. No IP addresses to look up.
 - **Settings** (⌘,) has everything else: open at login, notifications, sound,
@@ -180,6 +184,64 @@ ReoBaby watches where the camera points and corrects with short nudges until
 it's within about a degree. It steers over ONVIF when the camera has it on (the
 default), which answers much faster than the camera's HTTP API.
 
+## Soothing sounds
+
+ReoBaby can play steady noise on the speaker of the camera in the nursery, to
+help a baby settle and fall asleep. Press S in the player, click the moon in its
+controls, or choose **Soothing Sounds** from the moon's menu.
+
+- **The noise** is made as it plays: no recordings, nothing downloaded. White
+  noise is bright, like a fan. Pink is softer, like rain, and brown is deep,
+  like surf. **Warmth** takes out treble, toward the low hush a baby hears in
+  the womb.
+- **Layers** go on top: a heartbeat (70 beats a minute, adjustable), rhythmic
+  shushing, and waves that slowly swell and fall. Each has its own level in
+  Settings, so you set by ear how loud the heartbeat and the shush are against
+  the noise, and how far the waves swell. Every layer starts at 50%, its level
+  as designed.
+- **Preview** (the headphones button, in Settings and in the moon's popover)
+  plays the sound as set on your Mac only, never on a camera, so you can choose
+  by ear before it plays in the nursery. It fades in and takes each change in a
+  second and a half, and stops when you press it again, press Play, close the
+  popover, or after a minute.
+- **A timer** stops it after 45 minutes, or 15 minutes to 8 hours, fading out
+  over 2 minutes (up to 10 minutes in Settings): by then your baby is most
+  likely asleep, so it goes more slowly than any other fade.
+- **Nothing changes suddenly.** Playing and stopping fade over 10 seconds. A new
+  colour crossfades with the old, layers fade in and out, and volume and layer
+  levels ramp, each over 10 seconds; warmth glides. Stop shows Play again at
+  once, and Play during the fade brings the sound straight back up. Quitting
+  ReoBaby fades the sound out first.
+- **It plays on the camera you're watching.** Choose another camera and the
+  sound fades out on one and in on the other, unless the timer is already
+  fading it out: then it just ends. Pause and No Camera fade it out, and it
+  stays off when you resume. **Settings › Soothing › Play on** can play it on
+  your Mac instead.
+
+**Settings › Soothing** has all of it, and changes apply to the sound already
+playing. Set the volume standing at the crib.
+
+**Why these sounds.** In a small trial, 16 of 20 newborns fell asleep within 5
+minutes with white noise, against 5 of 20 without
+([Spencer 1990](https://pubmed.ncbi.nlm.nih.gov/2405784/)). No study has
+compared pink or brown noise with white for babies, so pick the one you like.
+Infant sleep machines can be loud: at full volume, the 14 that one study measured
+averaged 79 dBA at 30 cm ([Hugh 2014](https://pubmed.ncbi.nlm.nih.gov/24590753/)).
+Its advice is to keep the sound away from the crib, at a low volume, and on a
+timer. 50 dBA at the mattress, about a quiet conversation, is the limit it uses.
+
+**How it reaches the speaker.** ReoBaby talks to the camera the way the Reolink
+app does, over Reolink's own protocol on port 9000 (it logs in with the camera's
+password). The standard ONVIF way, an RTSP backchannel, stutters on Reolink's E1
+Zoom. ReoBaby's way is much steadier, but the camera still stalls for a second
+or two every so often, and the sound stutters then; sending further ahead
+doesn't help, as the camera only holds about a second. ReoBaby sends sound a
+second ahead, so a change you make reaches the nursery about a second later.
+The camera's microphone hears its speaker, so the noise is part of what
+you hear from the nursery, and noise reduction turns most of it down. When the
+sound starts, stops or gets louder, sound notifications relearn the room's
+background for a few seconds, so the change itself isn't taken for a cry.
+
 ## Keyboard
 
 | Key | Action |
@@ -189,6 +251,7 @@ default), which answers much faster than the camera's HTTP API.
 | ↑ ↓ | Volume |
 | T | Float on top |
 | C | Camera controls, on cameras that pan, tilt or zoom |
+| S | Soothing sounds on or off |
 | ← → or Tab, `[` `]` | Previous or next camera |
 | 1–9, ⌘1–⌘9 | Jump to a camera |
 | 0, ⌘0 | No camera |
@@ -257,6 +320,50 @@ build/ReoBaby.app/Contents/MacOS/ReoBaby --ptz "Nursery" pos
 
 ```bash
 build/ReoBaby.app/Contents/MacOS/ReoBaby --api "Nursery" GetPtzCurPos '{"PtzCurPos":{"channel":0}}'
+```
+
+To hear Soothing Sounds without the app, on a camera's speaker or on this Mac
+(`mac`), through one or more steps in turn, each lasting the given seconds. A
+step is a volume, or changes joined by `+`: `noise=brown`, `volume=0.6`,
+`warmth=0.8`, `shush=on`, `waves=off`, `heart=on`. A layer also takes a level,
+which turns it on: `shush=0.7`. Settings go last, as in
+`-sootheNoise brown -sootheHeartbeat 1`. On a camera it also logs what the
+camera's microphone hears:
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe "Nursery" 20 0.3,0.5
+```
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe "Nursery" 45 noise=pink,noise=brown,noise=pink+shush=on,shush=off+waves=on
+```
+
+Two checks run Soothing Sounds offline and silently, with no camera.
+`--soothe-check` renders every change of colour, layer, level, volume and
+warmth and fails if one is sudden. `--soothe-app-check` takes about two minutes:
+it plays on stand-in camera speakers that only measure what they're sent,
+through Stop and Play again, a camera switch, Pause and resume, the timer's end,
+and quitting:
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe-check
+```
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe-app-check
+```
+
+`--render soothing <file.png> [dark]` and `--render popover <file.png>` draw
+Settings › Soothing and the moon's popover offscreen. Settings go last, as in
+`-sootheHeartbeat YES`. The popover is always dark, like the player's controls;
+offscreen it has no blur.
+
+`--api-poll` asks for several things at once, with the password ReoBaby saved:
+command names to read, or the API's own JSON. With seconds, it asks again once
+a second for that long, one line each:
+
+```bash
+build/ReoBaby.app/Contents/MacOS/ReoBaby --api-poll "Nursery" GetPerformance,GetEnc
 ```
 
 `REOBABY_UPDATE_URL` points the updater at another release feed (a JSON file

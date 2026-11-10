@@ -97,6 +97,7 @@ final class PlayerView: NSView {
     private let pauseButton = HUDButton()
     private let muteButton = HUDButton()
     private let pinButton = HUDButton()
+    private let sootheButton = HUDButton()
     private let volumeSlider = HUDSlider()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private var trackingArea: NSTrackingArea?
@@ -106,6 +107,8 @@ final class PlayerView: NSView {
     var onPause: (() -> Void)?
     var onMute: (() -> Void)?
     var onPin: (() -> Void)?
+    /// Soothing Sounds' button: its popover hangs from it.
+    var onSoothe: ((NSView) -> Void)?
     var onVolume: ((Float) -> Void)?
     var cameraMenu: (() -> NSMenu?)?
     var contextMenu: (() -> NSMenu?)?
@@ -156,6 +159,7 @@ final class PlayerView: NSView {
         configure(positionsButton, symbol: "bookmark", tip: "Saved positions", action: #selector(positionsClicked))
         aimButton.isHidden = true
         positionsButton.isHidden = true
+        configure(sootheButton, symbol: "moon.zzz", tip: "Soothing sounds (S)", action: #selector(sootheClicked))
 
         volumeSlider.minValue = 0
         volumeSlider.maxValue = 1
@@ -167,7 +171,7 @@ final class PlayerView: NSView {
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
         volumeSlider.widthAnchor.constraint(equalToConstant: 64).isActive = true
 
-        let stack = NSStackView(views: [cameraButton, pauseButton, muteButton, volumeSlider, aimButton, positionsButton, pinButton])
+        let stack = NSStackView(views: [cameraButton, pauseButton, muteButton, volumeSlider, aimButton, positionsButton, sootheButton, pinButton])
         stack.setCustomSpacing(6, after: volumeSlider)
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 4)
@@ -227,7 +231,11 @@ final class PlayerView: NSView {
         }
     }
 
-    func update(cameraName: String?, paused: Bool, muted: Bool, volume: Float, pinned: Bool) {
+    func update(cameraName: String?, paused: Bool, muted: Bool, volume: Float, pinned: Bool, soothing: Bool) {
+        sootheButton.image = symbol(soothing ? "moon.zzz.fill" : "moon.zzz")
+        // Lit while sound plays in the nursery, in the moon tile's indigo.
+        sootheButton.contentTintColor = soothing ? NSColor(red: 0.70, green: 0.72, blue: 1, alpha: 1) : .white
+        sootheButton.toolTip = soothing ? "Soothing sounds are playing (S)" : "Soothing sounds (S)"
         cameraButton.title = cameraName ?? "No camera"
         cameraButton.isHidden = cameraName == nil
         pauseButton.image = symbol(paused ? "play.fill" : "pause.fill")
@@ -298,6 +306,10 @@ final class PlayerView: NSView {
         volumeSlider.isHidden = bounds.width < 250
     }
     @objc private func pinClicked() { onPin?() }
+    @objc private func sootheClicked() {
+        onSoothe?(sootheButton)
+        poke()
+    }
 
     // MARK: - Hover
 

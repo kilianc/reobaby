@@ -7,6 +7,31 @@ if let i = arguments.firstIndex(of: "--probe") {
     exit(Probe.run(target: target, seconds: seconds))
 }
 
+if let i = arguments.firstIndex(of: "--soothe"), i + 1 < arguments.count {
+    // A setting tried as an argument (`-sootheNoise brown`) is not a list of steps.
+    let steps = i + 3 < arguments.count && !arguments[i + 3].hasPrefix("-")
+        ? arguments[i + 3].split(separator: ",").map(String.init) : []
+    exit(Probe.soothe(target: arguments[i + 1], stepSeconds: i + 2 < arguments.count ? Double(arguments[i + 2]) ?? 30 : 30,
+                      steps: steps))
+}
+
+if arguments.contains("--soothe-check") {
+    exit(Probe.sootheCheck())
+}
+
+if arguments.contains("--soothe-app-check") {
+    exit(MainActor.assumeIsolated { Probe.sootheAppCheck() })
+}
+
+if let i = arguments.firstIndex(of: "--render"), i + 2 < arguments.count {
+    exit(MainActor.assumeIsolated { Probe.render(arguments[i + 1], to: arguments[i + 2], dark: arguments.contains("dark")) })
+}
+
+if let i = arguments.firstIndex(of: "--api-poll"), i + 2 < arguments.count {
+    exit(Probe.apiPoll(target: arguments[i + 1], commands: arguments[i + 2],
+                   seconds: i + 3 < arguments.count ? Double(arguments[i + 3]) ?? 0 : 0))
+}
+
 if let i = arguments.firstIndex(of: "--monitor") {
     let target = i + 1 < arguments.count ? arguments[i + 1] : ""
     let seconds = i + 2 < arguments.count ? Double(arguments[i + 2]) ?? 20 : 20

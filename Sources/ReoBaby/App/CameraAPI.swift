@@ -157,6 +157,11 @@ final class CameraAPI: NSObject, URLSessionDelegate, @unchecked Sendable {
         try await run([["cmd": cmd, "action": action, "param": param]])
     }
 
+    /// Any commands, as the camera answers them: for `ReoBaby --api-poll`.
+    func raw(_ commands: [[String: Any]]) async throws -> [[String: Any]] {
+        try await run(commands)
+    }
+
     func logout() async {
         guard let token, let base else { return }
         self.token = nil

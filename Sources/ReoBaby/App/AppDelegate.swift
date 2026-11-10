@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -39,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             refreshControls()
         }
     }
+    private var soothingPopover: NSPopover?
+    private var soothingWatch: AnyCancellable?
 
     private var muted = true {
         didSet {
@@ -98,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         defaults.register(defaults: ["muted": true, "pinned": true, "volume": 1.0, "showDockIcon": true])
+        defaults.register(defaults: Soother.defaults)
         showsDockIcon = defaults.bool(forKey: "showDockIcon")
     }
 
@@ -119,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         playerView.onPause = { [weak self] in self?.togglePause(nil) }
         playerView.onMute = { [weak self] in self?.toggleMute(nil) }
         playerView.onPin = { [weak self] in self?.togglePin(nil) }
+        playerView.onSoothe = { [weak self] in self?.showSoothingPopover(from: $0) }
         playerView.onVolume = { [weak self] in self?.setVolume($0) }
         playerView.cameraMenu = { [weak self] in self?.makeCameraMenu() }
         playerView.contextMenu = { [weak self] in self?.makeContextMenu() }
@@ -149,6 +155,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         statusBar.restorePlayerLevel = { [weak self] in self?.applyPinned() }
         alerts.onOpen = { [weak self] url in self?.openCamera(url: url) }
+        // Sound ReoBaby plays in the nursery isn't a cry: the monitor learns it as background.
+        Soother.shared.onBackgroundChange = { [weak self] seconds in self?.monitor?.expectBackgroundChange(for: seconds) }
+        soothingWatch = Soother.shared.$status.combineLatest(Soother.shared.$isFadingOut).removeDuplicates(by: ==).sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refreshControls() }
+        }
         alerts.onChange = { [weak self] isNew in self?.statusBar.setAlert(isNew) }
         alerts.requestAuthorization()
 
@@ -183,7 +194,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if window != nil { reloadCameras() }
     }
 
+    /// Soothing Sounds fade out before ReoBaby quits, rather than stop dead next to the crib.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated {
+            let soother = Soother.shared
+            // Also while it fades out after Stop: quitting finishes the fade.
+            guard soother.isSounding else { return .terminateNow }
+            soother.fadeOutForQuit { NSApp.reply(toApplicationShouldTerminate: true) }
+            return .terminateLater
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        Soother.shared.shutdown()
         player?.stop()
         monitor?.stop()
         Updater.shared.installIfReady()
@@ -384,6 +407,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             monitor = new
             new.start()
         }
+        // Soothing Sounds plays on the camera being watched; with none, it stops.
+        MainActor.assumeIsolated { Soother.shared.setCamera(name: camera?.displayName, endpoint: endpoint) }
         // Watching nothing looks like Pause on the moon, whichever way it came about.
         statusBar.setPaused(paused || (camera == nil && !cameras.isEmpty))
     }
@@ -602,6 +627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let dockNow = defaults.bool(forKey: "showDockIcon")
         if dockNow != showsDockIcon { showsDockIcon = dockNow }
         SoundSettings.refresh()
+        Soother.shared.settingsChanged()
         Updater.shared.setAutomatic(defaults.object(forKey: "autoUpdate") as? Bool ?? true)
     }
 
@@ -633,7 +659,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func refreshControls() {
         let name = currentCamera?.displayName ?? (cameras.isEmpty ? nil : "No Camera")
-        playerView?.update(cameraName: name, paused: paused, muted: muted, volume: volume, pinned: pinned)
+        playerView?.update(cameraName: name, paused: paused, muted: muted, volume: volume, pinned: pinned,
+                           soothing: MainActor.assumeIsolated { Soother.shared.isOn })
         playerView?.setCameraControls(available: ptz.state.available, shown: aiming,
                                       positions: ptz.state.ability?.presets == true)
     }
@@ -666,6 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case 126: volumeUp(nil); return true // ↑
         case 125: volumeDown(nil); return true // ↓
         case 49: togglePause(nil); return true // space
+        case 1: MainActor.assumeIsolated { toggleSoothing(nil) }; return true // S
         default: break
         }
         if let c = event.charactersIgnoringModifiers, let digit = Int(c), !cameras.isEmpty, digit <= cameras.count {
@@ -690,6 +718,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = item.tag == currentIndex ? .on : .off
         case #selector(nextCamera(_:)), #selector(previousCamera(_:)):
             return cameras.count > 1
+        case #selector(toggleSoothing(_:)):
+            item.state = Soother.shared.isOn ? .on : .off
+        case #selector(chooseNoise(_:)):
+            item.state = SoothingSettings.current.noise.rawValue == item.representedObject as? String ? .on : .off
+        case #selector(toggleLayer(_:)):
+            item.state = (item.representedObject as? String).map { defaults.bool(forKey: $0) } == true ? .on : .off
+        case #selector(chooseTimer(_:)):
+            item.state = Double(item.tag) == Soother.timerMinutes ? .on : .off
         case #selector(updateAction(_:)):
             item.title = Updater.shared.menuTitle
             return Updater.shared.menuEnabled
@@ -697,6 +733,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             break
         }
         return true
+    }
+
+    // MARK: - Soothing Sounds
+
+    @MainActor @objc func toggleSoothing(_ sender: Any?) { Soother.shared.toggle() }
+
+    @MainActor @objc func chooseNoise(_ sender: NSMenuItem) {
+        if let noise = sender.representedObject as? String { defaults.set(noise, forKey: "sootheNoise") }
+    }
+
+    @MainActor @objc func toggleLayer(_ sender: NSMenuItem) {
+        if let key = sender.representedObject as? String { defaults.set(!defaults.bool(forKey: key), forKey: key) }
+    }
+
+    @MainActor @objc func chooseTimer(_ sender: NSMenuItem) {
+        defaults.set(Double(sender.tag), forKey: "sootheTimer")
+    }
+
+    @MainActor @objc func showSoothingSettings(_ sender: Any?) { openSettings(.soothing) }
+
+    /// The player's moon button: quick controls in a popover hanging from it, drawn with the
+    /// player's own controls.
+    @MainActor private func showSoothingPopover(from view: NSView) {
+        if let soothingPopover, soothingPopover.isShown {
+            soothingPopover.performClose(nil)
+            return
+        }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        // Dark like the player's control strip, whatever the Mac's own look.
+        popover.appearance = NSAppearance(named: .darkAqua)
+        popover.contentViewController = NSHostingController(rootView: SoothingPopover(soother: .shared) { [weak self, weak popover] in
+            popover?.performClose(nil)
+            self?.openSettings(.soothing)
+        })
+        soothingPopover = popover
+        popover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
+    }
+
+
+
+    /// Soothing Sounds in the moon's menu: play or stop, the noise, the layers and the timer.
+    @MainActor private func makeSoothingMenu() -> NSMenu {
+        let menu = NSMenu()
+        let soother = Soother.shared
+        menu.addItem(item(soother.isOn ? "Stop" : "Play", #selector(toggleSoothing(_:))))
+        let line = [soother.isOn || soother.isFadingOut || { if case .failed = soother.status { return true }; return false }() ? soother.statusText : nil,
+                    soother.untilText].compactMap { $0 }.joined(separator: " · ")
+        if !line.isEmpty {
+            let status = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            status.isEnabled = false
+            menu.addItem(status)
+        }
+        menu.addItem(.separator())
+        for noise in SoothingSettings.Noise.allCases {
+            let entry = item("\(noise.title) Noise", #selector(chooseNoise(_:)))
+            entry.representedObject = noise.rawValue
+            menu.addItem(entry)
+        }
+        menu.addItem(.separator())
+        for (title, key) in [("Heartbeat", "sootheHeartbeat"), ("Shushing", "sootheShushing"), ("Waves", "sootheWaves")] {
+            let entry = item(title, #selector(toggleLayer(_:)))
+            entry.representedObject = key
+            menu.addItem(entry)
+        }
+        menu.addItem(.separator())
+        let timer = NSMenu()
+        for minutes in Soother.timerChoices {
+            let entry = item(Soother.describeTimer(minutes), #selector(chooseTimer(_:)))
+            entry.tag = Int(minutes)
+            timer.addItem(entry)
+        }
+        menu.addItem(submenu: timer, title: "Stop After")
+        menu.addItem(.separator())
+        menu.addItem(item("Soothing Settings…", #selector(showSoothingSettings(_:))))
+        return menu
     }
 
     @MainActor @objc func updateAction(_ sender: Any?) {
@@ -749,6 +862,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(item(paused ? "Resume" : "Pause", #selector(togglePause(_:))))
         menu.addItem(item("Float on Top", #selector(togglePin(_:))))
         menu.addItem(item("Mute", #selector(toggleMute(_:))))
+        let soothing = NSMenuItem(title: "Soothing Sounds", action: #selector(toggleSoothing(_:)), keyEquivalent: "")
+        soothing.target = self
+        soothing.submenu = makeSoothingMenu()
+        menu.addItem(soothing)
         menu.addItem(.separator())
         // Without a Dock icon there's no app menu, so Settings (and About in it) is here too.
         menu.addItem(item("Settings…", #selector(showSettings(_:))))
@@ -808,6 +925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         menu.insertItem(.separator(), at: 0)
         menu.insertItem(item("Float on Top", #selector(togglePin(_:))), at: 0)
+        menu.insertItem(item("Soothing Sounds", #selector(toggleSoothing(_:))), at: 0)
         menu.insertItem(item("Mute", #selector(toggleMute(_:))), at: 0)
         menu.insertItem(item(paused ? "Resume" : "Pause", #selector(togglePause(_:))), at: 0)
         return menu
@@ -864,6 +982,8 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(item("Volume Down", #selector(volumeDown(_:)), String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)), []))
         menu.addItem(item("Float on Top", #selector(togglePin(_:)), "t", []))
         menu.addItem(item("Camera Controls", #selector(toggleCameraControls(_:)), "c", []))
+        // S is handled by the player itself, like Space, so typing an S in Settings never plays.
+        menu.addItem(item("Soothing Sounds", #selector(toggleSoothing(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Next Camera", #selector(nextCamera(_:)), "]", []))
         menu.addItem(item("Previous Camera", #selector(previousCamera(_:)), "[", []))
