@@ -11,8 +11,17 @@ var products: [Product] = [
     .executable(name: "reobaby", targets: ["ReoBabyCLI"]),
 ]
 
+var dependencies: [Package.Dependency] = []
+var kitDependencies: [Target.Dependency] = []
+#if os(Linux)
+// Apple platforms have CryptoKit and CommonCrypto; elsewhere their open-source twin does it.
+dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "5.1.1"))
+kitDependencies += [.product(name: "Crypto", package: "swift-crypto"), .product(name: "CryptoExtras", package: "swift-crypto")]
+#endif
+
 var targets: [Target] = [
-    .target(name: "ReoBabyKit"),
+    .target(name: "ReoBabyKit", dependencies: kitDependencies),
+    .testTarget(name: "ReoBabyKitTests", dependencies: ["ReoBabyKit"]),
     .executableTarget(
         name: "ReoBabyCLI",
         dependencies: ["ReoBabyKit"],
@@ -35,5 +44,6 @@ let package = Package(
     name: "ReoBaby",
     platforms: [.macOS(.v14)],
     products: products,
+    dependencies: dependencies,
     targets: targets
 )

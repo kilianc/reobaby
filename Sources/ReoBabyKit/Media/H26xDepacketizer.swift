@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import CoreMedia
 import Foundation
 
@@ -272,3 +274,4 @@ public func makeBlockBuffer(_ bytes: [UInt8]) -> CMBlockBuffer? {
     }
     return status == kCMBlockBufferNoErr ? block : nil
 }
+#endif

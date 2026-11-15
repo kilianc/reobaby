@@ -1,5 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Where a pan-tilt camera points, in the camera's own units (see `PTZGeometry`).
 public struct PTZPosition: Equatable {

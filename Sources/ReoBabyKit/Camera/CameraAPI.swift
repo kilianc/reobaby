@@ -1,7 +1,11 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Reolink HTTP API (`/api.cgi`, JSON over POST, token login).
-/// Cameras serve a self-signed certificate; it is trusted for this exact host only.
+/// Cameras serve a self-signed certificate; it is trusted for this exact host only. Linux's
+/// URLSession can't be told to trust it, so there the API goes over HTTP.
 /// Commands may run concurrently: camera controls stop the camera while a move is still being answered.
 public final class CameraAPI: NSObject, URLSessionDelegate, @unchecked Sendable {
     public enum APIError: Error {
@@ -61,13 +65,15 @@ public final class CameraAPI: NSObject, URLSessionDelegate, @unchecked Sendable 
 
     public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+#if canImport(Security)
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            challenge.protectionSpace.host == host,
            let trust = challenge.protectionSpace.serverTrust {
             completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            completionHandler(.performDefaultHandling, nil)
+            return
         }
+#endif
+        completionHandler(.performDefaultHandling, nil)
     }
 
     // MARK: - Commands

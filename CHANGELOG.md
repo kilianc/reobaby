@@ -3,6 +3,21 @@
 What changed in each ReoBaby release. Every version is on the
 [Releases](https://github.com/kilianc/reobaby/releases) page.
 
+## Unreleased
+
+- **`reobaby`, ReoBaby from Terminal.** List and find your cameras, send any
+  command of a camera's HTTP API, aim a pan-tilt-zoom camera, check a stream,
+  watch sound levels and play soothing sounds on a camera's speaker. It comes
+  inside the app and updates with it, and uses the app's cameras, settings and
+  saved passwords without asking again. `reobaby help` lists the commands. The
+  camera tools the app's binary took as flags moved here: `--probe` is now
+  `reobaby probe`. See [Command line](README.md#command-line).
+- **On Linux too.** `make linux` builds `reobaby` for x86_64 and arm64 Linux,
+  such as a home server or a Raspberry Pi. There, `probe` counts what arrives
+  without decoding it, and the commands that decode sound need a Mac for now.
+- **ReoBabyKit**, everything in ReoBaby except its windows, as a Swift package
+  library for your own app, tool or server. See [Library](README.md#library).
+
 ## 1.7.0 · 2026-11-09
 
 - **Camera controls.** On cameras that pan, tilt or zoom, such as the E1 Zoom,

@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// Finds Reolink cameras on the local network, with no account needed: every host on this Mac's
@@ -31,8 +35,8 @@ public enum Discovery {
         return Result(hosts: found.sorted { (address($0) ?? 0) < (address($1) ?? 0) }, blocked: sweep.blocked)
     }
 
-    /// Every other address on this Mac's Wi-Fi and Ethernet subnets (`en*`, so VPN tunnels and
-    /// virtual-machine bridges are left alone). A subnet wider than /22 is narrowed to the /24
+    /// Every other address on this computer's Wi-Fi and Ethernet subnets (`en*`; on Linux also
+    /// `eth*` and `wl*`), so VPN tunnels and virtual-machine bridges are left alone. A subnet wider than /22 is narrowed to the /24
     /// around this Mac, so a sweep stays short.
     public static func candidateHosts() -> [String] {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
@@ -43,7 +47,7 @@ public enum Discovery {
         for entry in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let ifa = entry.pointee
             let flags = Int32(ifa.ifa_flags)
-            guard String(cString: ifa.ifa_name).hasPrefix("en"), flags & IFF_UP != 0,
+            guard isLAN(String(cString: ifa.ifa_name)), flags & Int32(IFF_UP) != 0,
                   let addr = ifa.ifa_addr, addr.pointee.sa_family == sa_family_t(AF_INET),
                   let mask = ifa.ifa_netmask else { continue }
             let ip = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
@@ -59,6 +63,15 @@ public enum Discovery {
         return hosts
     }
 
+    /// Wi-Fi or Ethernet, by the interface's name.
+    private static func isLAN(_ name: String) -> Bool {
+#if os(Linux)
+        ["en", "eth", "wl"].contains { name.hasPrefix($0) }
+#else
+        name.hasPrefix("en")
+#endif
+    }
+
     /// The hosts that accept a TCP connection on `port` within `timeout`. Connects to a batch of
     /// hosts at once with non-blocking sockets, so a /24 takes under a second. `blocked` is set
     /// when every connect failed immediately with "no route to host", which is how macOS turns
@@ -66,10 +79,15 @@ public enum Discovery {
     static func openHosts(_ hosts: [String], port: UInt16, timeout: TimeInterval = 0.8) -> (open: [String], blocked: Bool) {
         // Apps start with room for 256 open files; a batch needs one socket per host.
         var limit = rlimit()
-        getrlimit(RLIMIT_NOFILE, &limit)
+#if os(Linux)
+        let files = __rlimit_resource_t(RLIMIT_NOFILE.rawValue)
+#else
+        let files = RLIMIT_NOFILE
+#endif
+        getrlimit(files, &limit)
         if limit.rlim_cur < 2048 {
             limit.rlim_cur = min(2048, limit.rlim_max)
-            setrlimit(RLIMIT_NOFILE, &limit)
+            setrlimit(files, &limit)
         }
         let batch = max(32, Int(limit.rlim_cur) - 128)
         var open: [String] = []
@@ -78,15 +96,23 @@ public enum Discovery {
             var pending: [(fd: Int32, host: String)] = []
             for host in hosts[start..<min(start + batch, hosts.count)] {
                 var addr = sockaddr_in()
+#if !os(Linux)
                 addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+#endif
                 addr.sin_family = sa_family_t(AF_INET)
                 addr.sin_port = port.bigEndian
                 guard inet_pton(AF_INET, host, &addr.sin_addr) == 1 else { continue }
+#if os(Linux)
+                let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+#else
                 let fd = socket(AF_INET, SOCK_STREAM, 0)
+#endif
                 guard fd >= 0 else { continue }
                 _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+#if !os(Linux)
                 var on: Int32 = 1
                 setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+#endif
                 let rc = withUnsafePointer(to: &addr) {
                     $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
                 }

@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import AVFoundation
 import CoreMedia
 
@@ -84,3 +86,4 @@ public struct SoundDetector {
         loud.removeAll()
     }
 }
+#endif

@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import CoreMedia
 import Foundation
 
@@ -155,3 +157,4 @@ public final class CameraMonitor {
         }
     }
 }
+#endif

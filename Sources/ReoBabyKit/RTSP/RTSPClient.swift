@@ -1,6 +1,9 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
-import Network
 
 /// rtsp://[user[:password]@]host[:port]/path, with credentials split out.
 public struct RTSPEndpoint: Equatable {
@@ -124,7 +127,7 @@ public final class RTSPClient {
     private let endpoint: RTSPEndpoint
     private let queue: DispatchQueue
     private let wantsVideo: Bool
-    private var connection: NWConnection?
+    private var connection: TCPConnection?
     private var buffer: [UInt8] = []
     private var readIndex = 0
     private var cseq = 0
@@ -166,15 +169,10 @@ public final class RTSPClient {
     }
 
     public func start() {
-        let tcp = NWProtocolTCP.Options()
-        tcp.connectionTimeout = 6
-        tcp.noDelay = true
-        let params = NWParameters(tls: nil, tcp: tcp)
-        guard let port = NWEndpoint.Port(rawValue: endpoint.port) else {
+        guard let conn = TCPConnection(host: endpoint.host, port: endpoint.port) else {
             fail(.message("Invalid port"))
             return
         }
-        let conn = NWConnection(host: NWEndpoint.Host(endpoint.host), port: port, using: params)
         connection = conn
         conn.stateUpdateHandler = { [weak self] state in
             guard let self, !self.stopped else { return }
@@ -182,15 +180,13 @@ public final class RTSPClient {
             case .ready:
                 self.receive()
                 self.describe()
-            case .waiting(let error), .failed(let error):
-                if case .posix(.ENETDOWN) = error {
+            case .failed(let error):
+                if error.isNetworkDown {
                     // What macOS reports when Local Network access is denied or not yet granted.
                     self.fail(.message("ReoBaby needs Local Network access\nSystem Settings ▸ Privacy & Security ▸ Local Network"))
                 } else {
                     self.fail(.message("Can’t reach \(self.endpoint.host) (\(error.localizedDescription))"))
                 }
-            default:
-                break
             }
         }
         conn.start(queue: queue)
@@ -204,9 +200,9 @@ public final class RTSPClient {
         pending.removeAll()
         guard let conn = connection else { return }
         connection = nil
-        if sessionID != nil, conn.state == .ready {
+        if sessionID != nil, conn.isReady {
             let msg = buildRequest("TEARDOWN", playURI, headers: [])
-            conn.send(content: msg, completion: .contentProcessed { _ in conn.cancel() })
+            conn.send(msg) { _ in conn.cancel() }
         } else {
             conn.cancel()
         }
@@ -337,10 +333,10 @@ public final class RTSPClient {
             }
             completion(resp)
         }
-        conn.send(content: msg, completion: .contentProcessed { [weak self] error in
+        conn.send(msg) { [weak self] error in
             guard let self, let error else { return }
             self.fail(.message("Send failed (\(error.localizedDescription))"))
-        })
+        }
     }
 
     private func buildRequest(_ method: String, _ uri: String, headers: [(String, String)]) -> Data {
@@ -386,7 +382,7 @@ public final class RTSPClient {
     // MARK: - Reading
 
     private func receive() {
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, isComplete, error in
+        connection?.receive(maximumLength: 256 * 1024) { [weak self] data, isComplete, error in
             guard let self, !self.stopped else { return }
             if let data, !data.isEmpty {
                 self.buffer.append(contentsOf: data)

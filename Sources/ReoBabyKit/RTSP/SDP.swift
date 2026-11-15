@@ -1,12 +1,14 @@
 import Foundation
 
 public struct MediaDescription {
-    var kind: String
-    var payloadType: Int
-    var encoding = ""
-    var clockRate = 0
-    var channels = 1
-    var fmtp: [String: String] = [:]
+    /// "video" or "audio".
+    public internal(set) var kind: String
+    public internal(set) var payloadType: Int
+    /// H264, H265, MPEG4-GENERIC (AAC), PCMA, PCMU…
+    public internal(set) var encoding = ""
+    public internal(set) var clockRate = 0
+    public internal(set) var channels = 1
+    public internal(set) var fmtp: [String: String] = [:]
     var control: String?
 
     var isSupportedVideo: Bool {
@@ -19,7 +21,7 @@ public struct MediaDescription {
         return encoding == "MPEG4-GENERIC" && fmtp["config"] != nil
     }
 
-    var summary: String {
+    public var summary: String {
         "\(kind) \(encoding)/\(clockRate)\(kind == "audio" ? "/\(channels)" : "")"
     }
 }

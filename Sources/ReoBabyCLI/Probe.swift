@@ -1,7 +1,9 @@
+#if canImport(AVFoundation)
 import AVFoundation
 import CoreMedia
-import SwiftUI
 import VideoToolbox
+#endif
+import Foundation
 import ReoBabyKit
 
 /// `reobaby probe <camera name | number | rtsp://url> [seconds]`
@@ -61,6 +63,66 @@ enum Probe {
         return found.isEmpty ? 1 : 0
     }
 
+    /// `reobaby probe` where there's no VideoToolbox (Linux): connects over RTSP without decoding
+    /// and counts what arrives on each track for `seconds`.
+    static func stream(target: String, seconds: Double) -> Int32 {
+        guard let (camera, endpoint) = resolve(target) else {
+            print("No camera or rtsp:// URL matching “\(target)”")
+            return 2
+        }
+        struct Count { var packets = 0, bytes = 0, frames = 0, lost = 0, last: UInt16?, first: Double? }
+        let queue = DispatchQueue(label: "reobaby.probe")
+        let client = RTSPClient(endpoint: endpoint, queue: queue)
+        let began = Date()
+        func elapsed() -> String { String(format: "%5.2fs", Date().timeIntervalSince(began)) }
+        var tracks: [RTSPClient.Track] = []
+        var counts: [Int: Count] = [:]
+        var failure: String?
+        let done = DispatchSemaphore(value: 0)
+        client.onTracks = { list in
+            tracks = list
+            print("\(elapsed()) playing " + list.map(\.media.summary).joined(separator: ", "))
+        }
+        client.onRTP = { track, packet in
+            var count = counts[track] ?? Count()
+            if count.first == nil {
+                count.first = Date().timeIntervalSince(began)
+                print("\(elapsed()) first packet: \(track < tracks.count ? tracks[track].media.kind : "track \(track + 1)")")
+            }
+            count.packets += 1
+            count.bytes += packet.payload.count
+            if packet.marker { count.frames += 1 }
+            if let last = count.last {
+                let gap = Int(packet.sequence &- last)
+                if gap > 1, gap < 1000 { count.lost += gap - 1 }
+            }
+            count.last = packet.sequence
+            counts[track] = count
+        }
+        client.onFailure = { error in
+            switch error {
+            case .auth: failure = "the camera refused the login"
+            case .message(let text): failure = text
+            }
+            done.signal()
+        }
+        print("Connecting to \(camera.displayName) (\(endpoint.host))…")
+        client.start()
+        _ = done.wait(timeout: .now() + seconds)
+        queue.sync { client.stop() }
+        let span = Date().timeIntervalSince(began)
+        for (i, track) in tracks.enumerated() {
+            let count = counts[i] ?? Count()
+            let time = max(0.001, span - (count.first ?? span))
+            var line = String(format: "%@: %d packets, %.0f kB/s", track.media.summary, count.packets, Double(count.bytes) / time / 1000)
+            if track.media.kind == "video" { line += String(format: ", %.1f frames/s", Double(count.frames) / time) }
+            if count.lost > 0 { line += ", \(count.lost) lost" }
+            print(line)
+        }
+        if let failure { print("failed: \(failure)") }
+        return failure == nil && counts.values.contains { $0.packets > 0 } ? 0 : 1
+    }
+
     /// Runs async work to completion from a command-line entry point.
     static func wait(_ work: @escaping () async -> Int32) -> Int32 {
         final class Box { var value: Int32 = 1 }
@@ -109,8 +171,10 @@ enum Probe {
         let rate = 16000.0
         var settings = SoothingSettings.defaults
         // The defaults, over whatever the user has chosen, without writing over their choices.
+#if canImport(Combine)
         let defaults = MainActor.assumeIsolated { Soother.defaults }
         UserDefaults.standard.setVolatileDomain(defaults, forName: UserDefaults.argumentDomain)
+#endif
         let synth = SoothingSynth(sampleRate: rate, lowestFrequency: BaichuanTalk.lowestFrequency)
         var block = [Float](repeating: 0, count: Int(rate / 10))
         var levels: [Double] = []
@@ -122,7 +186,7 @@ enum Probe {
             }
         }
         func mean(_ range: Range<Int>) -> Double { range.map { levels[$0] }.reduce(0, +) / Double(range.count) }
-        synth.fade(to: 1, over: Soother.fadeSeconds)
+        synth.fade(to: 1, over: SoothingSynth.fadeSeconds)
         play(1)
         let firstSecond = mean(0..<10)
         play(14)
@@ -161,7 +225,7 @@ enum Probe {
             if jump > allowed { failed = true }
         }
         let before = mean(levels.count - 10..<levels.count)
-        synth.fade(to: 0, over: Soother.fadeSeconds)
+        synth.fade(to: 0, over: SoothingSynth.fadeSeconds)
         play(1)
         let fadeFirst = mean(levels.count - 10..<levels.count)
         play(10)
@@ -172,6 +236,7 @@ enum Probe {
         return failed ? 1 : 0
     }
 
+#if canImport(Combine)
     /// `reobaby soothe-app-check`: Soothing Sounds' app paths, offline and silently, on stand-in
     /// camera speakers that only measure what they're sent: Stop and Play again while it fades,
     /// switching camera, Pause and resuming, the timer's end, and quitting, while playing and
@@ -369,6 +434,8 @@ enum Probe {
         return failed ? 1 : 0
     }
 
+#endif
+
     /// `reobaby soothe <camera | mac> <seconds per step> [step,step,…]`: Soothing Sounds as
     /// Settings has them (try others as arguments: `-sootheNoise brown -sootheHeartbeat 1`),
     /// faded in, through each step in turn, faded out. A step is a volume (`0.6`) or changes
@@ -416,30 +483,42 @@ enum Probe {
             return 2
         }
         let onMac = target.lowercased() == "mac"
-        var mic: MicListener?
         var talk: BaichuanTalk?
         let synth: SoothingSynth
+#if canImport(CoreMedia)
+        var mic: MicListener?
         let mac: MacSpeaker?
+#endif
         if onMac {
+#if canImport(CoreMedia)
             mac = MacSpeaker()
             synth = mac!.synth
             print("Soothing Sounds on this Mac")
+#else
+            print("Playing on this computer needs macOS: name a camera")
+            return 2
+#endif
         } else {
             guard let (camera, endpoint) = resolve(target) else {
                 print("No camera or rtsp:// URL matching “\(target)”")
                 return 2
             }
+#if canImport(CoreMedia)
             mac = nil
+#endif
             synth = SoothingSynth(sampleRate: 16000, lowestFrequency: BaichuanTalk.lowestFrequency)
             let t = BaichuanTalk(host: endpoint.host, user: endpoint.user ?? "admin", password: endpoint.password ?? "")
             t.render = { buffer in buffer.withUnsafeMutableBufferPointer { synth.render($0) } }
             talk = t
+#if canImport(CoreMedia)
             if ProcessInfo.processInfo.environment["REOBABY_NO_CAM_MIC"] == nil {
                 mic = MicListener(endpoint: endpoint, record: nil)
                 mic?.start()
             }
+#endif
             print("Soothing Sounds on \(camera.displayName)'s speaker (\(endpoint.host))")
         }
+#if canImport(CoreMedia)
         // REOBABY_MAC_MIC=<file.wav>: this Mac's microphone, near the camera, measures what its
         // speaker actually plays, gaps and all.
         let macMic = ProcessInfo.processInfo.environment["REOBABY_MAC_MIC"].map { MacMic(path: $0) }
@@ -462,6 +541,10 @@ enum Probe {
             RunLoop.main.run(until: Date().addingTimeInterval(5))
             m.expectBackgroundChange(for: 3 + 6)
         }
+        let micNow = { mic?.now ?? 0 }
+#else
+        let micNow = { 0.0 }
+#endif
         var playingAt: Double?
         let began = Date()
         func stamp() -> String {
@@ -474,30 +557,39 @@ enum Probe {
               + (settings.shushing ? ", shushing" : "") + (settings.waves ? ", waves" : ""))
         talk?.onState = { state in
             print("\(stamp()) talk: \(state)")
+#if canImport(CoreMedia)
             if state == .playing, playingAt == nil { playingAt = macMic?.now }
+#endif
         }
         var marks: [(volume: Double, from: Double, to: Double)] = []
         _ = apply(steps[0], to: &settings)
         synth.update(settings)
-        synth.fade(to: 1, over: Soother.fadeSeconds)
+        synth.fade(to: 1, over: SoothingSynth.fadeSeconds)
         talk?.start()
+#if canImport(CoreMedia)
         mac?.start()
+#endif
         for (n, step) in steps.enumerated() {
             _ = apply(step, to: &settings)
             synth.update(settings)
             print("\(stamp()) step \(n + 1) of \(steps.count): \(step.isEmpty ? "as set" : step), volume \(Int(settings.volume * 100))% (\(String(format: "%.0f", 20 * log10(Double(settings.gain)))) dB)")
-            let from = mic?.now ?? 0
+            let from = micNow()
             RunLoop.main.run(until: Date().addingTimeInterval(stepSeconds))
-            marks.append((settings.volume, from, mic?.now ?? 0))
+            marks.append((settings.volume, from, micNow()))
         }
+#if canImport(CoreMedia)
         let stepsEnd = macMic?.now ?? 0
-        synth.fade(to: 0, over: Soother.fadeSeconds)
-        RunLoop.main.run(until: Date().addingTimeInterval(Soother.fadeSeconds + 0.2))
+#endif
+        synth.fade(to: 0, over: SoothingSynth.fadeSeconds)
+        RunLoop.main.run(until: Date().addingTimeInterval(SoothingSynth.fadeSeconds + 0.2))
         var finished = talk == nil
         talk?.finish { finished = true }
         while !finished { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+#if canImport(CoreMedia)
         mac?.stop()
+#endif
         print("\(stamp()) stopped")
+#if canImport(CoreMedia)
         if let monitor {
             monitor.expectBackgroundChange(for: 4)
             RunLoop.main.run(until: Date().addingTimeInterval(8))
@@ -529,6 +621,9 @@ enum Probe {
                 return String(format: "%d:%.0f%@", second, part.map(\.rms).sorted()[part.count / 2], silent > 0 ? "(\(silent)/\(part.count))" : "")
             }.joined(separator: " "))
         }
+#else
+        _ = marks
+#endif
         return 0
     }
 
@@ -570,6 +665,7 @@ enum Probe {
         return box.code ?? 1
     }
 
+#if canImport(CoreMedia)
     /// `reobaby monitor <camera> [seconds]`: background detection as the menu bar runs it.
     static func monitor(target: String, seconds: Double) -> Int32 {
         guard let (camera, endpoint) = resolve(target) else {
@@ -754,7 +850,10 @@ enum Probe {
         if authFailed { return 3 }
         return s.decoded > 0 ? 0 : 1
     }
+#endif
 }
+
+#if canImport(CoreMedia)
 
 private final class ProbeSink: MediaSink {
     struct Stats {
@@ -1075,3 +1174,5 @@ final class MacMic {
                       (runs.max() ?? 0) * 10, runs.prefix(12).map { "\($0 * 10)" }.joined(separator: ","))
     }
 }
+
+#endif

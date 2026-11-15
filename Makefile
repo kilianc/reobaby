@@ -50,6 +50,22 @@ release: app
 	ditto -c -k --keepParent $(APP) build/ReoBaby.zip
 	@echo "build/ReoBaby.zip: app $$(lipo -archs $(APP)/Contents/MacOS/ReoBaby), reobaby $$(lipo -archs $(APP)/Contents/Helpers/reobaby)"
 
+# reobaby for Linux, built in Swift's own Docker image with the Swift runtime linked in:
+# build/linux/reobaby-linux-arm64 and -x86_64 run on any glibc 2.35+ Linux (Ubuntu 22.04,
+# Debian 12, Raspberry Pi OS 12) with no Swift installed. x86_64 builds under emulation: slow.
+SWIFT_IMAGE ?= swift:6.4.2-jammy
+LINUX_ARCHS ?= arm64 x86_64
+linux:
+	mkdir -p build/linux
+	for arch in $(LINUX_ARCHS); do \
+	  platform=$$([ $$arch = x86_64 ] && echo amd64 || echo $$arch); \
+	  docker run --rm --platform linux/$$platform -u "$$(id -u):$$(id -g)" -e HOME=/tmp -v "$(CURDIR):/work" -w /work \
+	    $(SWIFT_IMAGE) sh -c "swift build -c release --static-swift-stdlib -Xlinker -s --scratch-path .build/linux-$$arch --product reobaby \
+	      && cp \$$(swift build -c release --static-swift-stdlib -Xlinker -s --scratch-path .build/linux-$$arch --show-bin-path)/reobaby build/linux/reobaby-linux-$$arch" \
+	    || exit 1; \
+	done
+	@ls -l build/linux
+
 # Reolink cameras on the local network, as Settings ▸ Cameras finds them.
 discover: app
 	$(APP)/Contents/Helpers/reobaby discover

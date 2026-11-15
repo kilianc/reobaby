@@ -1,3 +1,5 @@
+#if canImport(AVFoundation)
+// Apple platforms only.
 import AVFoundation
 
 /// Plays Soothing Sounds on this Mac's sound output.
@@ -39,3 +41,4 @@ public final class MacSpeaker {
         node = nil
     }
 }
+#endif

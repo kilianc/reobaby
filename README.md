@@ -51,8 +51,13 @@ app on my Mac, so I can keep an eye on my little dude while I work.
 - **Local only.** ReoBaby connects only to your cameras, and to GitHub to check
   for updates. No account, no cloud, no analytics. Passwords live in the login
   keychain.
+- **Command line and library.** `reobaby` does the same from Terminal, on a
+  Mac or on Linux, and ReoBabyKit puts it in your own Swift app. See
+  [Command line](#command-line) and [Library](#library).
 - **No dependencies.** RTSP, RTP depacketizing (H.264, H.265, AAC, G.711) and
   hardware decoding are written on top of Network.framework and AVFoundation.
+  On Linux, Apple's [swift-crypto](https://github.com/apple/swift-crypto)
+  stands in for the Mac's own cryptography.
 
 ## Install
 
@@ -261,10 +266,110 @@ background for a few seconds, so the change itself isn't taken for a cry.
 Right-click the video for the same menu. With camera controls on, the arrow
 keys, + and − and Esc aim the camera instead (see [Camera controls](#camera-controls)).
 
+## Command line
+
+`reobaby` lists and finds your cameras, sends commands to them, aims them and
+plays soothing sounds on their speakers, from Terminal. It comes inside the
+app and updates with it. To put it on your PATH:
+
+```bash
+sudo ln -s /Applications/ReoBaby.app/Contents/Helpers/reobaby /usr/local/bin/reobaby
+```
+
+It uses the app's camera list and settings, and the passwords the app saved in
+your keychain, without asking for them again. `<camera>` is a name, a number
+from `reobaby list`, or an `rtsp://` address:
+
+```bash
+reobaby list
+```
+
+```bash
+reobaby api 1 GetDevInfo
+```
+
+| Command | What it does |
+| --- | --- |
+| `list` | The cameras in cameras.json, numbered. |
+| `discover` | Reolink cameras on your network. |
+| `api <camera> <Command> [json] [action]` | One command of the camera's HTTP API, answered as JSON. |
+| `api-poll <camera> <commands> [seconds]` | Several reads at once; with seconds, once a second. |
+| `ptz <camera> [command]` | Pan, tilt and zoom: `pos`, `goto`, `zoom`, `limit` and more. |
+| `probe <camera> [seconds]` | Connects and reports codecs, frame rate and errors. |
+| `monitor <camera> [seconds]` | Sound levels and motion events, as notifications see them. |
+| `soothe <camera \| mac> <seconds> [steps]` | Soothing sounds, through steps in turn. |
+
+`reobaby help` lists the rest. Settings go last, as in `-sootheNoise brown`,
+and apply to that run only.
+
+### On Linux
+
+`reobaby` also runs on Linux, on x86_64 and arm64, such as a home server or a
+Raspberry Pi. It needs glibc 2.35 or later (Ubuntu 22.04, Debian 12) and
+libcurl:
+
+```bash
+sudo apt install libcurl4
+```
+
+Build it on a Mac with Docker (next section's `make linux`), copy
+`build/linux/reobaby-linux-x86_64` or `reobaby-linux-arm64` to the Linux
+machine, and add your cameras to `~/.config/reobaby/cameras.json`. Linux has no
+keychain, so each camera's `password` goes in the file; keep it private with
+`chmod 600`.
+
+On Linux, `probe` counts what arrives on each track without decoding it, and
+`soothe` plays on a camera's speaker only. The commands that decode sound
+(`monitor`, `record`, `process`) need a Mac for now. The camera's HTTP API goes
+over plain HTTP there, because Linux can't be told to trust the camera's own
+certificate, so the login crosses your network unencrypted.
+
+## Library
+
+ReoBabyKit is everything in ReoBaby except its windows, as a Swift package
+library: the camera list, discovery, the HTTP API, the stream, pan, tilt and
+zoom, and soothing sounds. The app and `reobaby` use it like any other client.
+Add it to your `Package.swift`:
+
+```swift
+.package(url: "https://github.com/kilianc/reobaby.git", branch: "main"),
+```
+
+```swift
+.product(name: "ReoBabyKit", package: "reobaby"),
+```
+
+Then:
+
+```swift
+import ReoBabyKit
+
+// Cameras on the network, and the ones ReoBaby already knows.
+let nearby = await Discovery.find()
+print("On the network:", nearby.hosts)
+
+for camera in try ConfigStore.load() {
+    guard let endpoint = camera.endpoint(), let password = endpoint.password else { continue }
+    let api = CameraAPI(host: endpoint.host, user: endpoint.user ?? "admin", password: password)
+    let jpeg = try await api.snapshot()
+    print(camera.displayName, "sent a \(jpeg.count)-byte picture")
+    if let position = try? await api.ptzPosition() {
+        print("pointing at pan \(position.pan), tilt \(position.tilt)")
+    }
+    await api.logout()
+}
+```
+
+It builds for macOS 14 or later and for Linux. Decoding (`CameraPlayer`), sound
+processing and detection (`CameraMonitor`) and playing on the Mac
+(`MacSpeaker`, `Soother`) use Apple's media frameworks, so they're on Apple
+platforms only. Its API is the one the app uses, so it may change between
+releases.
+
 ## Build from source
 
 You need macOS 14 or later and Xcode or its Command Line Tools (Swift 5.10 or
-later). There are no other dependencies.
+later). There are no other dependencies. `make linux` also needs Docker.
 
 ```bash
 git clone https://github.com/kilianc/reobaby.git
@@ -278,8 +383,11 @@ Other targets:
 | Command | What it does |
 | --- | --- |
 | `make run` | Build and open the app from `build/`. |
+| `make link` | Put `reobaby` from the installed app on your PATH, in `/usr/local/bin` (`BINDIR=` for elsewhere). |
 | `make release` | Build a universal (Apple silicon and Intel) app and zip it to `build/ReoBaby.zip`. It needs your signing certificate, because ReoBaby only installs updates signed like the copy they replace. |
 | `make probe CAM="Nursery"` | Connect to a camera without a window and print codecs, frame rate, errors and its name. `CAM` is a name, a number from the list, or an `rtsp://` URL. |
+| `make linux` | Build `reobaby` for Linux in Swift's Docker image: `build/linux/reobaby-linux-arm64` and `-x86_64`. The x86_64 build runs under emulation and takes a few minutes. |
+| `swift test` | Run ReoBabyKit's tests. |
 | `make discover` | List the Reolink cameras on your network, as Settings › Cameras finds them. |
 | `make test-server` | Start local test cameras in Docker at `rtsp://tester:testpass@127.0.0.1:8554/` with the paths `nursery`, `h264`, `h265` and `beeps`. |
 
@@ -287,39 +395,41 @@ The Makefile signs with your Apple Development certificate if you have one, so
 macOS remembers keychain permissions across rebuilds. Without one it signs
 ad hoc, and macOS asks for keychain access again after each build.
 
-To watch live sound levels and detection events for a camera:
+The tools below are `reobaby` commands. From a build, it's
+`build/ReoBaby.app/Contents/Helpers/reobaby`. To watch live sound levels and
+detection events for a camera:
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --monitor "Nursery" 30
+reobaby monitor "Nursery" 30
 ```
 
 To tune the sound processing against a real room, record a camera's sound, then
-run the recording through the processing. `--process` prints levels before and
+run the recording through the processing. `process` prints levels before and
 after, lists the sound events it would notify with and without noise reduction,
 and writes what you would hear. Settings go after the files, as `-audioBoost 30`,
 without changing yours. WAV files are git-ignored, so recordings stay out of the
 repo:
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --record "Nursery" 60 build/room.wav
+reobaby record "Nursery" 60 build/room.wav
 ```
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --process build/room.wav build/room-processed.wav
+reobaby process build/room.wav build/room-processed.wav
 ```
 
 To drive a pan-tilt camera from Terminal, and to measure how a new model moves
-(`PTZGeometry` holds the E1 Zoom's numbers), use `--ptz`. `survey` measures how
+(`PTZGeometry` holds the E1 Zoom's numbers), use `ptz`. `survey` measures how
 far the picture moves per unit of pan and tilt at a zoom; `ends` checks whether
 the pictures at the two pan end stops overlap, which means a full turn.
-`--api` sends any command of the camera's HTTP API and prints the answer:
+`api` sends any command of the camera's HTTP API and prints the answer:
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --ptz "Nursery" pos
+reobaby ptz "Nursery" pos
 ```
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --api "Nursery" GetPtzCurPos '{"PtzCurPos":{"channel":0}}'
+reobaby api "Nursery" GetPtzCurPos '{"PtzCurPos":{"channel":0}}'
 ```
 
 To hear Soothing Sounds without the app, on a camera's speaker or on this Mac
@@ -331,39 +441,40 @@ which turns it on: `shush=0.7`. Settings go last, as in
 camera's microphone hears:
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe "Nursery" 20 0.3,0.5
+reobaby soothe "Nursery" 20 0.3,0.5
 ```
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe "Nursery" 45 noise=pink,noise=brown,noise=pink+shush=on,shush=off+waves=on
+reobaby soothe "Nursery" 45 noise=pink,noise=brown,noise=pink+shush=on,shush=off+waves=on
 ```
 
 Two checks run Soothing Sounds offline and silently, with no camera.
-`--soothe-check` renders every change of colour, layer, level, volume and
-warmth and fails if one is sudden. `--soothe-app-check` takes about two minutes:
+`soothe-check` renders every change of colour, layer, level, volume and
+warmth and fails if one is sudden. `soothe-app-check` takes about two minutes:
 it plays on stand-in camera speakers that only measure what they're sent,
 through Stop and Play again, a camera switch, Pause and resume, the timer's end,
 and quitting:
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe-check
+reobaby soothe-check
 ```
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --soothe-app-check
+reobaby soothe-app-check
 ```
 
-`--render soothing <file.png> [dark]` and `--render popover <file.png>` draw
-Settings › Soothing and the moon's popover offscreen. Settings go last, as in
+The app's own binary draws Settings › Soothing and the moon's popover
+offscreen, to check how they look: `build/ReoBaby.app/Contents/MacOS/ReoBaby
+--render soothing <file.png> [dark]` and `--render popover <file.png>`. Settings go last, as in
 `-sootheHeartbeat YES`. The popover is always dark, like the player's controls;
 offscreen it has no blur.
 
-`--api-poll` asks for several things at once, with the password ReoBaby saved:
+`api-poll` asks for several things at once, with the password ReoBaby saved:
 command names to read, or the API's own JSON. With seconds, it asks again once
 a second for that long, one line each:
 
 ```bash
-build/ReoBaby.app/Contents/MacOS/ReoBaby --api-poll "Nursery" GetPerformance,GetEnc
+reobaby api-poll "Nursery" GetPerformance,GetEnc
 ```
 
 `REOBABY_UPDATE_URL` points the updater at another release feed (a JSON file

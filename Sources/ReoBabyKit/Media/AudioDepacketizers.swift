@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import AudioToolbox
 import CoreMedia
 import Foundation
@@ -193,3 +195,4 @@ public final class G711Depacketizer: AudioDepacketizer {
         return Int16(x & 0x80 != 0 ? t : -t)
     }
 }
+#endif

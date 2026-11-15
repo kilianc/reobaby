@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import CoreMedia
 import Foundation
 
@@ -227,3 +229,4 @@ public final class CameraPlayer {
         DispatchQueue.main.async { self.onState?(state) }
     }
 }
+#endif

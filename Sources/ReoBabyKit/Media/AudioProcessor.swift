@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import Accelerate
 import AVFoundation
 import CoreMedia
@@ -594,3 +596,4 @@ public struct Limiter {
         }
     }
 }
+#endif

@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// What Soothing Sounds plays, from Settings ▸ Soothing. Every setting is a user default.
 public struct SoothingSettings: Equatable, Sendable {
@@ -81,6 +80,8 @@ public final class SoothingSynth {
 
     /// How long a change of colour or layer takes, as long as a fade.
     public static let changeSeconds = 10.0
+    /// How long every start, stop and switch fades.
+    public static let fadeSeconds = 10.0
     /// How long a change takes here: `changeSeconds`, or quicker for a preview on this Mac.
     let changeSeconds: Double
 
@@ -92,7 +93,7 @@ public final class SoothingSynth {
         var fadeStep: Float = 1
     }
 
-    private let control = OSAllocatedUnfairLock(initialState: Control())
+    private let control = StateLock(initialState: Control())
     private var seen = -1
 
     // State owned by the render thread.

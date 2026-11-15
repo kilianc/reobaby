@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 public struct Camera: Codable, Equatable {
     /// Optional: when omitted, the name configured on the camera itself is used.
@@ -125,6 +127,7 @@ public enum DeviceNames {
     }
 }
 
+#if canImport(Security)
 /// Camera passwords in the login keychain. Each entry is read at most once per launch:
 /// every read of an entry that hasn't granted ReoBaby access shows a macOS prompt, and
 /// a prompt blocks the reading thread until it is answered.
@@ -194,3 +197,12 @@ public enum Keychain {
         }
     }
 }
+#else
+/// Without a keychain (Linux), passwords come from cameras.json's `password` field.
+public enum Keychain {
+    public static func isLoaded(_ account: String) -> Bool { true }
+    public static func password(account: String) -> String? { nil }
+    public static func deletePassword(account: String) {}
+    public static func setPassword(_ password: String, account: String) {}
+}
+#endif

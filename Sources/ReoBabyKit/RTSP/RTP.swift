@@ -2,11 +2,12 @@ import Foundation
 
 /// One RTP packet (RFC 3550) with header fields parsed and the payload copied out.
 public struct RTPPacket {
-    let marker: Bool
-    let payloadType: UInt8
-    let sequence: UInt16
-    let timestamp: UInt32
-    let payload: [UInt8]
+    /// For video, the last packet of a frame.
+    public let marker: Bool
+    public let payloadType: UInt8
+    public let sequence: UInt16
+    public let timestamp: UInt32
+    public let payload: [UInt8]
 
     init?(_ b: [UInt8]) {
         guard b.count >= 12, b[0] >> 6 == 2 else { return nil }

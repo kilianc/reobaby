@@ -16,7 +16,7 @@ Cameras
   api-poll <camera> <commands> [seconds]   Several at once; with seconds, once a second
   ptz <camera> [command]                   Pan, tilt and zoom; `reobaby ptz <camera> help`
 
-Picture and sound (macOS)
+Picture and sound (macOS; on Linux, probe counts packets without decoding)
   probe <camera> [seconds]                 Connect and report codecs, frame rate and errors
   monitor <camera> [seconds]               Sound levels and detection events, live
   record <camera> <seconds> <out.wav>      A camera's sound, as it arrives
@@ -49,8 +49,7 @@ case "", "help", "h":
     exit(command.isEmpty ? 2 : 0)
 
 case "version", "v":
-    let info = Bundle.main.infoDictionary
-    print("reobaby \(info?["CFBundleShortVersionString"] as? String ?? "(unknown version)")")
+    print("reobaby \(ReoBaby.version)")
 
 case "list":
     exit(Probe.list())
@@ -70,6 +69,7 @@ case "ptz":
     guard let target = plain(0) else { fail("reobaby ptz <camera> [pos | goto | pulses | zoom | limit | survey | ends]") }
     exit(Probe.ptz(target: target, arguments: Array(arguments.dropFirst())))
 
+#if canImport(CoreMedia)
 case "probe":
     exit(Probe.run(target: plain(0) ?? "", seconds: plain(1).flatMap { Double($0) } ?? 8))
 
@@ -85,6 +85,14 @@ case "record":
 case "process":
     guard let input = plain(0) else { fail("reobaby process <in.wav> [out.wav]") }
     exit(Probe.process(input, to: plain(1)))
+#else
+case "probe":
+    // No decoder here: what arrives, track by track.
+    exit(Probe.stream(target: plain(0) ?? "", seconds: plain(1).flatMap { Double($0) } ?? 8))
+
+case "monitor", "record", "process":
+    fail("reobaby \(command) decodes the camera's sound, which needs macOS for now.")
+#endif
 
 case "soothe":
     guard let target = plain(0) else { fail("reobaby soothe <camera | mac> <seconds per step> [step,step,…]") }
@@ -95,7 +103,11 @@ case "soothe-check":
     exit(Probe.sootheCheck())
 
 case "soothe-app-check":
+#if canImport(Combine)
     exit(MainActor.assumeIsolated { Probe.sootheAppCheck() })
+#else
+    fail("reobaby soothe-app-check runs the Mac app's paths, so it needs macOS.")
+#endif
 
 default:
     fail("reobaby: no command “\(command)”. `reobaby help` lists them.")

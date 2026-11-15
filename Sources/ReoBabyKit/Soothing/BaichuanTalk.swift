@@ -1,7 +1,14 @@
+#if canImport(CryptoKit)
 import CommonCrypto
 import CryptoKit
+#else
+import Crypto
+import CryptoExtras
+#endif
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 
 /// Plays sound on a Reolink camera's speaker the way Reolink's own app does: "Baichuan", the
 /// camera's native protocol on TCP port 9000. ReoBaby logs in, asks the camera how it wants
@@ -39,7 +46,7 @@ public final class BaichuanTalk {
     private let user: String
     private let password: String
     private let queue = DispatchQueue(label: "reobaby.talk", qos: .userInteractive)
-    private var connection: NWConnection?
+    private var connection: TCPConnection?
     private var inbox: [UInt8] = []
     private var waiting: [UInt16: (Message) -> Void] = [:]
     private var nextNumber: UInt16 = 0
@@ -64,7 +71,9 @@ public final class BaichuanTalk {
     private var lastTick: UInt64 = 0
     private var window = (start: UInt64(0), gap: 0.0, rtt: 0.0, minAhead: 9.0, maxUnacked: 0, skipped: 0)
     /// What TCP did in the second being measured: resent bytes tell a lossy network from a busy camera.
+#if canImport(Network)
     private var transfer: NWConnection.PendingDataTransferReport?
+#endif
 
     /// How far ahead of the clock sound goes out, which the camera keeps and plays from through
     /// a short hiccup. It holds only so much: sent further ahead, it drops some at the start.
@@ -117,11 +126,7 @@ public final class BaichuanTalk {
 
     private func connect() {
         report(failures == 0 ? .connecting : .retrying("Reconnecting to the speaker…"))
-        let tcp = NWProtocolTCP.Options()
-        tcp.connectionTimeout = 6
-        tcp.noDelay = true
-        let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: Self.port)!,
-                                using: NWParameters(tls: nil, tcp: tcp))
+        let conn = TCPConnection(host: host, port: Self.port)!
         connection = conn
         inbox = []
         waiting = [:]
@@ -132,10 +137,8 @@ public final class BaichuanTalk {
             case .ready:
                 self.receive()
                 self.logIn()
-            case .waiting(let error), .failed(let error):
+            case .failed(let error):
                 self.failed(.message("Can’t reach \(self.host)’s speaker (\(error.localizedDescription))"))
-            default:
-                break
             }
         }
         conn.start(queue: queue)
@@ -148,10 +151,10 @@ public final class BaichuanTalk {
         retryWork = nil
         guard let conn = connection else { return }
         connection = nil
-        if reset, acked, conn.state == .ready {
+        if reset, acked, conn.isReady {
             // TalkReset frees the speaker for other apps; then close.
             let msg = encode(id: 11, number: talkNumber, extensionXML: Self.channelExtension, payload: nil)
-            conn.send(content: Data(msg), completion: .contentProcessed { _ in conn.cancel() })
+            conn.send(Data(msg)) { _ in conn.cancel() }
         } else {
             conn.cancel()
         }
@@ -300,7 +303,9 @@ public final class BaichuanTalk {
         unacked = 0
         sentSamples = 0
         began = DispatchTime.now().uptimeNanoseconds
+#if canImport(Network)
         transfer = nil
+#endif
         let t = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
         t.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(2))
         t.setEventHandler { [weak self] in self?.tick() }
@@ -350,6 +355,7 @@ public final class BaichuanTalk {
                           window.gap * 1000, window.rtt * 1000, window.minAhead * 1000, window.maxUnacked,
                           window.skipped > 0 ? "  SKIPPED \(window.skipped)" : "")
         window = (now, 0, 0, 9, 0, 0)
+#if canImport(Network)
         if let transfer {
             transfer.collect(queue: queue) { report in
                 let path = report.aggregatePathReport
@@ -359,7 +365,10 @@ public final class BaichuanTalk {
         } else {
             print(line)
         }
-        transfer = connection?.startDataTransferReport()
+        transfer = connection?.network.startDataTransferReport()
+#else
+        print(line)
+#endif
     }
 
     /// A block of ADPCM in Reolink's media framing ("01wb", an audio frame).
@@ -436,14 +445,14 @@ public final class BaichuanTalk {
     }
 
     private func send(_ bytes: [UInt8]) {
-        connection?.send(content: Data(bytes), completion: .contentProcessed { [weak self] error in
+        connection?.send(Data(bytes)) { [weak self] error in
             guard let self, let error else { return }
             self.queue.async { self.failed(.message("Send failed (\(error.localizedDescription))")) }
-        })
+        }
     }
 
     private func receive() {
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+        connection?.receive(maximumLength: 64 * 1024) { [weak self] data, isComplete, error in
             guard let self, self.connection != nil else { return }
             if let data, !data.isEmpty {
                 self.inbox += data
@@ -528,10 +537,10 @@ public enum Cipher {
 
     private static let key: [UInt8] = [0x1F, 0x2D, 0x3C, 0x4B, 0x5A, 0x69, 0x78, 0xFF]
 
-    func encrypt(_ bytes: [UInt8], offset: UInt8) -> [UInt8] { crypt(bytes, offset: offset, operation: CCOperation(kCCEncrypt)) }
-    func decrypt(_ bytes: [UInt8], offset: UInt8) -> [UInt8] { crypt(bytes, offset: offset, operation: CCOperation(kCCDecrypt)) }
+    func encrypt(_ bytes: [UInt8], offset: UInt8) -> [UInt8] { crypt(bytes, offset: offset, encrypting: true) }
+    func decrypt(_ bytes: [UInt8], offset: UInt8) -> [UInt8] { crypt(bytes, offset: offset, encrypting: false) }
 
-    private func crypt(_ bytes: [UInt8], offset: UInt8, operation: CCOperation) -> [UInt8] {
+    private func crypt(_ bytes: [UInt8], offset: UInt8, encrypting: Bool) -> [UInt8] {
         switch self {
         case .none:
             return bytes
@@ -541,6 +550,8 @@ public enum Cipher {
             guard !bytes.isEmpty else { return bytes }
             // AES-128 in 128-bit cipher feedback, starting afresh from the same IV every time.
             let iv = Array("0123456789abcdef".utf8)
+#if canImport(CommonCrypto)
+            let operation = CCOperation(encrypting ? kCCEncrypt : kCCDecrypt)
             var cryptor: CCCryptorRef?
             guard CCCryptorCreateWithMode(operation, CCMode(kCCModeCFB), CCAlgorithm(kCCAlgorithmAES), CCPadding(ccNoPadding),
                                           iv, key, key.count, nil, 0, 0, 0, &cryptor) == kCCSuccess, let cryptor else { return bytes }
@@ -549,6 +560,12 @@ public enum Cipher {
             var moved = 0
             CCCryptorUpdate(cryptor, bytes, bytes.count, &out, out.count, &moved)
             return out
+#else
+            guard let iv = try? AES._CFB.IV(ivBytes: iv) else { return bytes }
+            let key = SymmetricKey(data: key)
+            let out = encrypting ? try? AES._CFB.encrypt(bytes, using: key, iv: iv) : try? AES._CFB.decrypt(bytes, using: key, iv: iv)
+            return out.map { Array($0) } ?? bytes
+#endif
         }
     }
 }

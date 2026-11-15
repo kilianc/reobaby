@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import CoreMedia
 import Foundation
 
@@ -143,3 +145,4 @@ public enum Splice {
         return -direction * best.distance
     }
 }
+#endif

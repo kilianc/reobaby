@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import AVFoundation
 
 extension CMSampleBuffer {
@@ -115,3 +117,4 @@ public final class AudioDecoder {
         return PCM(samples: samples, channels: channels, sampleRate: outputFormat.sampleRate)
     }
 }
+#endif

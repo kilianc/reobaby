@@ -1,3 +1,5 @@
+#if canImport(Combine)
+// Apple platforms only.
 import Foundation
 
 /// Soothing Sounds: noise made on the fly, played on the speaker of the camera you're watching
@@ -34,7 +36,7 @@ public final class Soother: ObservableObject {
     /// it takes the sound away more slowly than any other fade, never in less than 2 minutes.
     public static let fadeOutChoices: [Double] = [120, 180, 300, 600]
     /// How long every start, stop and switch fades.
-    public nonisolated static let fadeSeconds = 10.0
+    public nonisolated static let fadeSeconds = SoothingSynth.fadeSeconds
 
     public static let defaults: [String: Any] = [
         "sootheNoise": SoothingSettings.defaults.noise.rawValue, "sootheVolume": SoothingSettings.defaults.volume,
@@ -423,3 +425,4 @@ extension SpeakerLink {
 }
 
 extension BaichuanTalk: SpeakerLink {}
+#endif

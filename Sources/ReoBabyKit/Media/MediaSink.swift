@@ -1,3 +1,5 @@
+#if canImport(CoreMedia)
+// Apple platforms only.
 import AVFoundation
 import CoreMedia
 
@@ -67,3 +69,4 @@ public final class RendererSink: MediaSink {
         video.flush()
     }
 }
+#endif

@@ -1,6 +1,8 @@
+#if canImport(ImageIO)
 import CoreGraphics
-import Foundation
 import ImageIO
+#endif
+import Foundation
 import ReoBabyKit
 
 /// `reobaby ptz <camera> <command> …`: pan, tilt and zoom from the command line, and the
@@ -72,6 +74,7 @@ extension Probe {
                     }
                     await api.ptzStopNow()
                     print("end stop: pan \(last.pan) tilt \(last.tilt)")
+#if canImport(ImageIO)
                 case "survey":
                     // survey <zoom> <pan> <tilt,tilt,…>: how far the picture moves per unit
                     guard rest.count > 2, let zoom = Int(rest[0]), let pan = Int(rest[1]) else { return usage() }
@@ -79,6 +82,12 @@ extension Probe {
                 case "ends":
                     // ends <tilt>: whether the pictures at the two pan end stops overlap
                     try await ends(api, tilt: Int(rest.first ?? "") ?? 300)
+#else
+                case "survey", "ends":
+                    print("\(command) compares pictures, which needs macOS")
+                    await api.logout()
+                    return 2
+#endif
                 default:
                     return usage()
                 }
@@ -119,6 +128,7 @@ extension Probe {
         return last
     }
 
+#if canImport(ImageIO)
     private static func snapshot(_ api: CameraAPI) async throws -> CGImage? {
         let data = try await api.snapshot()
         return CGImageSourceCreateWithData(data as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
@@ -179,8 +189,10 @@ extension Probe {
         print(String(format: "at %d,%d and %d,%d the picture moved %+.4f, %+.4f picture widths (match %.2f)",
                      pictures[0].0.pan, pictures[0].0.tilt, pictures[1].0.pan, pictures[1].0.tilt, m.x, m.y, m.score))
     }
+#endif
 }
 
+#if canImport(ImageIO)
 /// How far the middle of one picture moved in another, by correlation of grey levels.
 enum PictureShift {
     private struct Grey {
@@ -240,3 +252,4 @@ enum PictureShift {
         return (Double(fine.dx) / 960, Double(fine.dy) / 960, fine.score)
     }
 }
+#endif
