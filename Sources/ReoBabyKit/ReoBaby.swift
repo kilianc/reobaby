@@ -10,5 +10,5 @@
 /// - `SoothingSynth` and `BaichuanTalk`: noise made as it plays, on the camera's speaker.
 public enum ReoBaby {
     /// The release this library comes from: the app's CFBundleShortVersionString.
-    public static let version = "1.7.0"
+    public static let version = "1.8.0"
 }
