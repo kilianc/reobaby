@@ -7,6 +7,7 @@ a corner of your screen while you work and tells you when something happens.
 
 **[Download for Mac](https://github.com/kilianc/reobaby/releases/latest/download/ReoBaby.zip)**
 · [Try it in your browser](https://kilianc.github.io/reobaby/) · [What's new](CHANGELOG.md) · macOS 14 or later, Apple silicon and Intel
+· [`reobaby` for Linux](#on-linux)
 
 ![A Mac desktop with a small ReoBaby window showing a baby asleep in a crib, and a "Sound detected" notification](docs/hero.jpg)
 
@@ -306,17 +307,24 @@ and apply to that run only.
 
 `reobaby` also runs on Linux, on x86_64 and arm64, such as a home server or a
 Raspberry Pi. It needs glibc 2.35 or later (Ubuntu 22.04, Debian 12) and
-libcurl:
+libcurl, and no Swift. Install libcurl, then download `reobaby` from the latest
+release (`reobaby-linux-arm64.tar.gz` on arm64):
 
 ```bash
 sudo apt install libcurl4
 ```
 
-Build it on a Mac with Docker (next section's `make linux`), copy
-`build/linux/reobaby-linux-x86_64` or `reobaby-linux-arm64` to the Linux
-machine, and add your cameras to `~/.config/reobaby/cameras.json`. Linux has no
-keychain, so each camera's `password` goes in the file; keep it private with
-`chmod 600`.
+```bash
+curl -L https://github.com/kilianc/reobaby/releases/latest/download/reobaby-linux-x86_64.tar.gz | tar xz
+```
+
+```bash
+sudo mv reobaby /usr/local/bin/
+```
+
+Then add your cameras to `~/.config/reobaby/cameras.json`, in the format under
+[Add your cameras](#add-your-cameras). Linux has no keychain, so each camera's
+`password` goes in the file; keep it private with `chmod 600`.
 
 On Linux, `probe` counts what arrives on each track without decoding it, and
 `soothe` plays on a camera's speaker only. The commands that decode sound
@@ -386,7 +394,7 @@ Other targets:
 | `make link` | Put `reobaby` from the installed app on your PATH, in `/usr/local/bin` (`BINDIR=` for elsewhere). |
 | `make release` | Build a universal (Apple silicon and Intel) app and zip it to `build/ReoBaby.zip`. It needs your signing certificate, because ReoBaby only installs updates signed like the copy they replace. |
 | `make probe CAM="Nursery"` | Connect to a camera without a window and print codecs, frame rate, errors and its name. `CAM` is a name, a number from the list, or an `rtsp://` URL. |
-| `make linux` | Build `reobaby` for Linux in Swift's Docker image: `build/linux/reobaby-linux-arm64` and `-x86_64`. The x86_64 build runs under emulation and takes a few minutes. |
+| `make linux` | Build `reobaby` for Linux in Swift's Docker image: `build/linux/arm64/reobaby` and `build/linux/x86_64/reobaby`, and a `.tar.gz` of each for a release. The x86_64 build runs under emulation and takes a few minutes. |
 | `swift test` | Run ReoBabyKit's tests. |
 | `make discover` | List the Reolink cameras on your network, as Settings › Cameras finds them. |
 | `make test-server` | Start local test cameras in Docker at `rtsp://tester:testpass@127.0.0.1:8554/` with the paths `nursery`, `h264`, `h265` and `beeps`. |
